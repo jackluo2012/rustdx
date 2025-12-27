@@ -1,4 +1,4 @@
-use rustdx::tcp::{Tcp, Tdx};
+use rustdx_complete::tcp::{Tcp, Tdx};
 use std::io::Result;
 
 fn main() -> Result<()> {

@@ -27,7 +27,7 @@ serde = { workspace = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }
 
-[dependencies.rustdx]
+[dependencies.rustdx-complete]
 version  = "0.5.0"
 path = "../"
 

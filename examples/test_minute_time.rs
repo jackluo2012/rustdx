@@ -2,8 +2,8 @@
 /**
 测试MinuteTime功能，获取股票分时数据
 */
-use rustdx::tcp::{Tcp, Tdx};
-use rustdx::tcp::stock::MinuteTime;
+use rustdx_complete::tcp::{Tcp, Tdx};
+use rustdx_complete::tcp::stock::MinuteTime;
 
 fn main() {
     println!("🚀 测试MinuteTime功能\n");
@@ -21,7 +21,7 @@ fn main() {
             println!("   ❌ 默认连接失败: {}，尝试其他服务器...", e);
 
             // 尝试其他服务器IP
-            use rustdx::tcp::ip::STOCK_IP;
+            use rustdx_complete::tcp::ip::STOCK_IP;
             let mut last_error = e.to_string();
             let mut connected = false;
 

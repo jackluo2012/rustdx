@@ -2,8 +2,8 @@
 /**
 测试SecurityQuotes功能，并打印调试信息
 */
-use rustdx::tcp::{Tcp, Tdx};
-use rustdx::tcp::stock::SecurityQuotes;
+use rustdx_complete::tcp::{Tcp, Tdx};
+use rustdx_complete::tcp::stock::SecurityQuotes;
 
 fn main() {
     println!("🚀 测试SecurityQuotes功能（调试模式）\n");
@@ -18,7 +18,7 @@ fn main() {
         Err(e) => {
             println!("   ❌ 连接失败: {}，尝试其他服务器...", e);
 
-            use rustdx::tcp::ip::STOCK_IP;
+            use rustdx_complete::tcp::ip::STOCK_IP;
             for (i, ip) in STOCK_IP.iter().enumerate().take(5) {
                 println!("\n   尝试服务器 #{}: {}...", i + 1, ip);
                 match Tcp::new_with_ip(ip) {

@@ -3,8 +3,8 @@
 测试指数行情功能
 使用SecurityQuotes获取上证指数、深证成指等实时行情数据
 */
-use rustdx::tcp::{Tcp, Tdx};
-use rustdx::tcp::stock::SecurityQuotes;
+use rustdx_complete::tcp::{Tcp, Tdx};
+use rustdx_complete::tcp::stock::SecurityQuotes;
 
 fn main() {
     println!("🚀 测试指数行情功能\n");
@@ -22,7 +22,7 @@ fn main() {
             println!("   ❌ 默认连接失败: {}，尝试其他服务器...", e);
 
             // 尝试其他服务器IP
-            use rustdx::tcp::ip::STOCK_IP;
+            use rustdx_complete::tcp::ip::STOCK_IP;
             let mut last_error = e.to_string();
             let mut connected = false;
 

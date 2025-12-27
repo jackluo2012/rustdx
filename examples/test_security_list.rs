@@ -2,8 +2,8 @@
 /**
 测试SecurityList功能，获取股票列表
 */
-use rustdx::tcp::{Tcp, Tdx};
-use rustdx::tcp::stock::SecurityList;
+use rustdx_complete::tcp::{Tcp, Tdx};
+use rustdx_complete::tcp::stock::SecurityList;
 
 fn main() {
     println!("🚀 测试SecurityList功能\n");
@@ -21,7 +21,7 @@ fn main() {
             println!("   ❌ 默认连接失败: {}，尝试其他服务器...", e);
 
             // 尝试其他服务器IP
-            use rustdx::tcp::ip::STOCK_IP;
+            use rustdx_complete::tcp::ip::STOCK_IP;
             let mut last_error = e.to_string();
             let mut connected = false;
 
