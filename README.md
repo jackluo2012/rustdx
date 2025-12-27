@@ -16,6 +16,174 @@
 1. 一个 Rust 通用库 [rustdx](https://crates.io/crates/rustdx)；
 2. 一个命令行工具 [rustdx-cmd](https://crates.io/crates/rustdx-cmd)。
 
+## rustdx 库使用
+
+rustdx 是一个功能完整的 A 股数据获取库，完全对标 pytdx 的核心功能。
+
+### 功能特性
+
+| 功能 | rustdx 模块 | pytdx 对应 | 说明 |
+|------|------------|-----------|------|
+| 日K线 | `Kline` | `get_security_bars` | 支持多种周期（日/周/月/分钟） |
+| 除权数据 | `Xdxr` | `get_xdxr` | 股票除权除息信息 |
+| 实时行情 | `SecurityQuotes` | `get_security_quotes` | 股票和指数实时快照 |
+| 股票列表 | `SecurityList` | `get_security_list` | 获取所有股票代码 |
+| 分时数据 | `MinuteTime` | `get_minute_time_data` | 当日分时成交数据 |
+| 逐笔成交 | `Transaction` | `get_transaction_data` | tick-level 成交数据 |
+| 财务信息 | `FinanceInfo` | `get_finance_info` | 32个财务基本面数据 |
+| 指数行情 | `SecurityQuotes` | `get_index_quotes` | 上证指数、深证成指等 |
+
+### 安装
+
+```toml
+[dependencies]
+rustdx = "0.5"
+```
+
+### 使用示例
+
+#### 获取股票实时行情
+
+```rust
+use rustdx::tcp::{Tcp, Tdx};
+use rustdx::tcp::stock::SecurityQuotes;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut tcp = Tcp::new()?;
+
+    // 获取多只股票的实时行情
+    let mut quotes = SecurityQuotes::new(vec![
+        (0, "000001"),  // 平安银行（深市）
+        (1, "600000"),  // 浦发银行（沪市）
+    ]);
+
+    quotes.recv_parsed(&mut tcp)?;
+
+    for quote in quotes.result() {
+        println!("{}: {} - 当前价: {}", quote.code, quote.name, quote.price);
+    }
+
+    Ok(())
+}
+```
+
+#### 获取指数行情
+
+```rust
+use rustdx::tcp::{Tcp, Tdx};
+use rustdx::tcp::stock::SecurityQuotes;
+
+let mut tcp = Tcp::new()?;
+
+// 获取主要指数行情
+let mut quotes = SecurityQuotes::new(vec![
+    (1, "000001"),  // 上证指数
+    (0, "399001"),  // 深证成指
+    (1, "000300"),  // 沪深300
+]);
+
+quotes.recv_parsed(&mut tcp)?;
+
+for quote in quotes.result() {
+    println!("{}: {} (涨跌: {}%)", quote.code, quote.price, quote.change_percent);
+}
+```
+
+#### 获取日线数据
+
+```rust
+use rustdx::tcp::{Tcp, Tdx};
+use rustdx::tcp::stock::Kline;
+
+let mut tcp = Tcp::new()?;
+let mut kline = Kline::new(1, "600000", 9, 0, 10); // 沪市、浦发银行、日线、从0开始获取10条
+
+kline.recv_parsed(&mut tcp)?;
+
+for bar in kline.result() {
+    println!("{} : 开({}) 高({}) 低({}) 收({})",
+        bar.dt, bar.open, bar.high, bar.low, bar.close);
+}
+```
+
+#### 获取财务信息
+
+```rust
+use rustdx::tcp::{Tcp, Tdx};
+use rustdx::tcp::stock::FinanceInfo;
+
+let mut tcp = Tcp::new()?;
+let mut finance = FinanceInfo::new(0, "000001"); // 深市、平安银行
+
+finance.recv_parsed(&mut tcp)?;
+
+let info = &finance.result()[0];
+println!("股票代码: {}", info.code);
+println!("总股本: {:.0} 股", info.zongguben);
+println!("净资产: {:.0} 元", info.jingzichan);
+println!("净利润: {:.0} 元", info.jinglirun);
+```
+
+#### 获取分时数据
+
+```rust
+use rustdx::tcp::{Tcp, Tdx};
+use rustdx::tcp::stock::MinuteTime;
+
+let mut tcp = Tcp::new()?;
+let mut minute = MinuteTime::new(0, "000001", 0); // 深市、平安银行、从第0条开始
+
+minute.recv_parsed(&mut tcp)?;
+
+for data in minute.result().iter().take(10) { // 只打印前10条
+    println!("{} : 价格={} 成交量={}", data.time, data.price, data.vol);
+}
+```
+
+#### 获取逐笔成交
+
+```rust
+use rustdx::tcp::{Tcp, Tdx};
+use rustdx::tcp::stock::Transaction;
+
+let mut tcp = Tcp::new()?;
+let mut transaction = Transaction::new(0, "000001", 0); // 深市、平安银行、从第0条开始
+
+transaction.recv_parsed(&mut tcp)?;
+
+for data in transaction.result().iter().take(5) { // 只打印前5笔
+    println!("{} : 价格={} 成交量={} 买卖方向={}",
+        data.time, data.price, data.vol, data.buyorsell);
+}
+```
+
+### 市场代码说明
+
+- `0` = 深市（深圳证券交易所）
+- `1` = 沪市（上海证券交易所）
+
+### 超时设置
+
+默认 TCP 超时时间为 5 秒。如果网络环境较差，可以调整 `src/tcp/mod.rs` 中的 `TIMEOUT` 常量。
+
+### 完整示例程序
+
+项目 `examples/` 目录下提供了完整的使用示例：
+
+- `test_security_quotes.rs` - 股票和指数行情
+- `test_kline.rs` - K线数据
+- `test_finance_info.rs` - 财务信息
+- `test_minute_time.rs` - 分时数据
+- `test_transaction.rs` - 逐笔成交
+- `test_security_list.rs` - 股票列表
+
+运行示例：
+```bash
+cargo run --example test_security_quotes
+```
+
+---
+
 命令行工具（统计数据基于笔者的单核 CPU Ubuntu 系统 release build，以实际速度为准）：
 1. 解析所有最新股票列表的历史 A 股数据（包含复权数据）不到 30s ，解析后的 csv 大小 1G 多；
 2. 将解析后的 csv 数据插入到 ClickHouse （20s，表 268 M） 或 MongoDB （7 分钟，表超过 700 M）；
