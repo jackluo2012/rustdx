@@ -1,11 +1,44 @@
+# Rust
 old/
 target/
+.cargo/
+fleet.toml
+
+# 日志文件
+*.log
 rustdx.log
 rustdx-cmd/rustdx.log
+
+# 数据文件
+*.csv
 rustdx-cmd/stocks.csv
 rustdx-cmd/eastmoney.csv
 rustdx-cmd/factor.csv
-.cargo/
-fleet.toml
-target
+eastmoney.csv
 
+# 编辑器和IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Python测试脚本（临时验证用）
+test_pytdx*.py
+
+# 测试快照
+tests/.struct_size.rs.pending-snap
+*.pending-snap
+
+# 工作流和模板
+.spec-workflow/
+PR_TEMPLATE.md
+
+# 临时调试文件
+examples/*_debug.rs
+examples/*_raw.rs
+
+# 备份文件
+*.bak
+*.backup
