@@ -110,7 +110,9 @@ impl<'a> Tdx for SecurityQuotes<'a> {
     const LEN: usize = 22 + 80 * 7; // 固定长度：包头22字节 + 最多80只股票
 
     fn send(&mut self) -> &[u8] {
-        &self.send
+        // 只返回实际需要发送的字节数：包头22字节 + 每只股票7字节
+        let actual_len = 22 + self.stocks.len() * 7;
+        &self.send[..actual_len]
     }
 
     /// 解析响应的字节。
