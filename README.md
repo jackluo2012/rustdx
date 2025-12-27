@@ -37,7 +37,7 @@ rustdx 是一个功能完整的 A 股数据获取库，完全对标 pytdx 的核
 
 ```toml
 [dependencies]
-rustdx = "0.5"
+rustdx = "0.5.0"
 ```
 
 ### 使用示例
