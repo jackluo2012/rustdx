@@ -1,8 +1,8 @@
 use insta::assert_debug_snapshot;
 
 #[test]
-fn day_sz000001() -> rustdx::Result<()> {
-    use rustdx::file::{
+fn day_sz000001() -> rustdx_complete::Result<()> {
+    use rustdx_complete::file::{
         day::Day,
         gbbq::{Fq, Gbbq},
     };

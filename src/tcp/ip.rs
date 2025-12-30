@@ -15,10 +15,10 @@
 
 lazy_static::lazy_static! {
     pub static ref STOCK_IP: [std::net::SocketAddr; 19] = [
-        "39.100.68.59:7709".parse().unwrap(),
+        "115.238.56.198:7709".parse().unwrap(),  // 移到前面，经测试可用
         "114.80.149.19:7709".parse().unwrap(),
         "114.80.149.22:7709".parse().unwrap(),
-        "115.238.56.198:7709".parse().unwrap(),
+        "39.100.68.59:7709".parse().unwrap(),    // 移到后面，测试不返回数据
         "115.238.90.165:7709".parse().unwrap(),
         "117.184.140.156:7709".parse().unwrap(),
         "119.147.164.60:7709".parse().unwrap(),

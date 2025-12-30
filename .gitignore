@@ -42,3 +42,4 @@ examples/*_raw.rs
 # 备份文件
 *.bak
 *.backup
+__pycache__/

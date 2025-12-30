@@ -2,6 +2,22 @@
 
 use crate::bytes_helper::{u16_from_le_bytes, u32_from_le_bytes};
 
+/// 将 GBK 编码的字节转换为 UTF-8 字符串
+///
+/// 通达信服务器返回的中文数据使用 GBK 编码，需要转换为 UTF-8
+pub fn gbk_to_string(bytes: &[u8]) -> String {
+    encoding_rs::GBK.decode(bytes).0.to_string()
+}
+
+/// 将 GBK 编码的字节转换为 UTF-8 字符串，并去除尾部空字符
+///
+/// 通达信服务器返回的字符串通常以 `\0` 填充到固定长度
+pub fn gbk_to_string_trim_null(bytes: &[u8]) -> String {
+    // 找到第一个 \0 的位置
+    let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+    gbk_to_string(&bytes[..end])
+}
+
 /// 解析日期时间的原始结果。如果需要其他形式的日期时间，可自行转化。
 ///
 /// 由函数 [`datetime`] 解析响应字节得到此结构体。

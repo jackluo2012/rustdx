@@ -3,6 +3,7 @@
 [<img alt="github" src="https://img.shields.io/github/license/zjp-CN/rustdx?color=blue" height="20">](https://github.com/zjp-CN/rustdx)
 [<img alt="github" src="https://img.shields.io/github/issues/zjp-CN/rustdx?color=db2043" height="20">](https://github.com/zjp-CN/rustdx/issues)
 [<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-complete?style=flat&color=fc8d62&logo=rust&label=rustdx-complete" height="20">](https://crates.io/crates/rustdx-complete)
+[<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-complete/0.6.0?style=flat&color=green&logo=rust&logoColor=white&label=v0.6.0" height="20">](https://crates.io/crates/rustdx-complete)
 [<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-rustdx-66c2a5?style=flat&labelColor=555555&logoColor=white&logo=data:image/svg+xml;base64,PHN2ZyByb2xlPSJpbWciIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDUxMiA1MTIiPjxwYXRoIGZpbGw9IiNmNWY1ZjUiIGQ9Ik00ODguNiAyNTAuMkwzOTIgMjE0VjEwNS41YzAtMTUtOS4zLTI4LjQtMjMuNC0zMy43bC0xMDAtMzcuNWMtOC4xLTMuMS0xNy4xLTMuMS0yNS4zIDBsLTEwMCAzNy41Yy0xNC4xIDUuMy0yMy40IDE4LjctMjMuNCAzMy43VjIxNGwtOTYuNiAzNi4yQzkuMyAyNTUuNSAwIDI2OC45IDAgMjgzLjlWMzk0YzAgMTMuNiA3LjcgMjYuMSAxOS45IDMyLjJsMTAwIDUwYzEwLjEgNS4xIDIyLjEgNS4xIDMyLjIgMGwxMDMuOS01MiAxMDMuOSA1MmMxMC4xIDUuMSAyMi4xIDUuMSAzMi4yIDBsMTAwLTUwYzEyLjItNi4xIDE5LjktMTguNiAxOS45LTMyLjJWMjgzLjljMC0xNS05LjMtMjguNC0yMy40LTMzLjd6TTM1OCAyMTQuOGwtODUgMzEuOXYtNjguMmw4NS0zN3Y3My4zek0xNTQgMTA0LjFsMTAyLTM4LjIgMTAyIDM4LjJ2LjZsLTEwMiA0MS40LTEwMi00MS40di0uNnptODQgMjkxLjFsLTg1IDQyLjV2LTc5LjFsODUtMzguOHY3NS40em0wLTExMmwtMTAyIDQxLjQtMTAyLTQxLjR2LS42bDEwMi0zOC4yIDEwMiAzOC4ydi42em0yNDAgMTEybC04NSA0Mi41di03OS4xbDg1LTM4Ljh2NzUuNHptMC0xMTJsLTEwMiA0MS40LTEwMi00MS40di0uNmwxMDItMzguMiAxMDIgMzguMnYuNnoiPjwvcGF0aD48L3N2Zz4K" height="20">](https://docs.rs/rustdx)
 [<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-cmd?style=flat&color=fc8d62&logo=rust&label=rustdx-cmd" height="20">](https://crates.io/crates/rustdx-cmd)
 [<img alt="build status" src="https://github.com/zjp-CN/rustdx/workflows/Release%20CI/badge.svg" height="20">](https://github.com/zjp-CN/rustdx/actions)
@@ -13,8 +14,46 @@
 [![](https://img.shields.io/crates/dv/rustdx-cmd.svg?label=downloads@latest+rustdx-cmd&style=social)](https://crates.io/crates/rustdx-cmd)
 
 受 [pytdx](https://pypi.org/project/pytdx/1.28) 启发的 A 股数据获取工具，包含：
-1. 一个 Rust 通用库 [rustdx](https://crates.io/crates/rustdx)；
+1. 一个 Rust 通用库 [rustdx-complete](https://crates.io/crates/rustdx-complete)；
 2. 一个命令行工具 [rustdx-cmd](https://crates.io/crates/rustdx-cmd)。
+
+## 📝 最新更新 (v0.6.0 - 已发布)
+
+> **2025-12-30**: v0.6.0 已成功发布到 [crates.io](https://crates.io/crates/rustdx-complete) ✅
+
+### 🔧 v0.6.0 重要修复
+
+**1. 修复中文编码显示问题**
+- ✅ 修复 GBK 编码的中文数据显示为乱码的问题
+- ✅ 股票名称、指数名称等中文数据现在能正确显示
+- ✅ 使用 `encoding_rs` 库进行 GBK → UTF-8 编码转换
+
+**2. 修复服务器连接问题**
+- ✅ 优化服务器 IP 顺序，将可用的服务器移到前面
+- ✅ 默认服务器 `115.238.56.198:7709` 现在能正常返回数据
+
+**3. 修复内存安全问题**
+- ✅ 移除所有 `unsafe` 的 `get_unchecked` 操作
+- ✅ 添加数据边界检查，防止 panic
+- ✅ 所有解析函数现在都能安全处理不完整数据
+
+**4. 修复示例代码**
+- ✅ 更新所有示例代码使用正确的 crate 名称 `rustdx_complete`
+- ✅ 所有 12 个示例程序现在都能正常编译和运行
+
+### 📦 安装
+
+```bash
+# Cargo.toml
+[dependencies]
+rustdx-complete = "0.6"  # 或 "=0.6.0"
+```
+
+或使用 cargo add：
+
+```bash
+cargo add rustdx-complete
+```
 
 ## rustdx 库使用
 
@@ -37,7 +76,7 @@ rustdx 是一个功能完整的 A 股数据获取库，完全对标 pytdx 的核
 
 ```toml
 [dependencies]
-rustdx-complete = "0.5.0"
+rustdx-complete = "0.6"
 ```
 
 ### 使用示例
@@ -45,8 +84,8 @@ rustdx-complete = "0.5.0"
 #### 获取股票实时行情
 
 ```rust
-use rustdx::tcp::{Tcp, Tdx};
-use rustdx::tcp::stock::SecurityQuotes;
+use rustdx_complete::tcp::{Tcp, Tdx};
+use rustdx_complete::tcp::stock::SecurityQuotes;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut tcp = Tcp::new()?;
@@ -70,8 +109,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #### 获取指数行情
 
 ```rust
-use rustdx::tcp::{Tcp, Tdx};
-use rustdx::tcp::stock::SecurityQuotes;
+use rustdx_complete::tcp::{Tcp, Tdx};
+use rustdx_complete::tcp::stock::SecurityQuotes;
 
 let mut tcp = Tcp::new()?;
 
@@ -92,8 +131,8 @@ for quote in quotes.result() {
 #### 获取日线数据
 
 ```rust
-use rustdx::tcp::{Tcp, Tdx};
-use rustdx::tcp::stock::Kline;
+use rustdx_complete::tcp::{Tcp, Tdx};
+use rustdx_complete::tcp::stock::Kline;
 
 let mut tcp = Tcp::new()?;
 let mut kline = Kline::new(1, "600000", 9, 0, 10); // 沪市、浦发银行、日线、从0开始获取10条
@@ -109,8 +148,8 @@ for bar in kline.result() {
 #### 获取财务信息
 
 ```rust
-use rustdx::tcp::{Tcp, Tdx};
-use rustdx::tcp::stock::FinanceInfo;
+use rustdx_complete::tcp::{Tcp, Tdx};
+use rustdx_complete::tcp::stock::FinanceInfo;
 
 let mut tcp = Tcp::new()?;
 let mut finance = FinanceInfo::new(0, "000001"); // 深市、平安银行
@@ -127,8 +166,8 @@ println!("净利润: {:.0} 元", info.jinglirun);
 #### 获取分时数据
 
 ```rust
-use rustdx::tcp::{Tcp, Tdx};
-use rustdx::tcp::stock::MinuteTime;
+use rustdx_complete::tcp::{Tcp, Tdx};
+use rustdx_complete::tcp::stock::MinuteTime;
 
 let mut tcp = Tcp::new()?;
 let mut minute = MinuteTime::new(0, "000001", 0); // 深市、平安银行、从第0条开始
@@ -143,8 +182,8 @@ for data in minute.result().iter().take(10) { // 只打印前10条
 #### 获取逐笔成交
 
 ```rust
-use rustdx::tcp::{Tcp, Tdx};
-use rustdx::tcp::stock::Transaction;
+use rustdx_complete::tcp::{Tcp, Tdx};
+use rustdx_complete::tcp::stock::Transaction;
 
 let mut tcp = Tcp::new()?;
 let mut transaction = Transaction::new(0, "000001", 0); // 深市、平安银行、从第0条开始

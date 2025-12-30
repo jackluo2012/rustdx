@@ -1,6 +1,6 @@
 // use insta::{assert_debug_snapshot, assert_yaml_snapshot};
 use insta::assert_debug_snapshot;
-use rustdx::tcp::{self, Tcp, Tdx};
+use rustdx_complete::tcp::{self, Tcp, Tdx};
 use std::io::Result;
 
 #[test]

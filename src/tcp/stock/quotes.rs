@@ -122,6 +122,14 @@ impl<'a> Tdx for SecurityQuotes<'a> {
     /// - 接下来2字节：股票数量
     /// - 之后每只股票：约200字节的数据
     fn parse(&mut self, v: Vec<u8>) {
+        // 检查最小长度：至少需要 4 字节（2跳过 + 2数量）
+        if v.len() < 4 {
+            eprintln!("⚠️  行情数据长度不足: {} 字节（需要至少 4 字节）", v.len());
+            self.response = v;
+            self.data = Vec::new();
+            return;
+        }
+
         let mut pos = 0;
 
         // 跳过前2字节
@@ -133,7 +141,12 @@ impl<'a> Tdx for SecurityQuotes<'a> {
 
         self.data = Vec::with_capacity(num_stocks as usize);
 
-        for _ in 0..num_stocks {
+        for i in 0..num_stocks {
+            // 检查是否还有足够的数据（每只股票至少需要约100字节）
+            if pos + 100 > v.len() {
+                eprintln!("⚠️  行情数据不完整，只解析了 {}/{} 只股票", i, num_stocks);
+                break;
+            }
             // 解析每只股票数据
             let quote = parse_quote(&v, &mut pos);
             self.data.push(quote);

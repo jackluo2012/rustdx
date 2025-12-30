@@ -82,18 +82,44 @@ impl Tdx for SecurityList {
     /// - 前2字节：股票数量
     /// - 之后每只股票：29字节
     fn parse(&mut self, v: Vec<u8>) {
+        // 检查最小长度：至少需要 2 字节（数量）
+        if v.len() < 2 {
+            eprintln!("⚠️  股票列表数据长度不足: {} 字节（需要至少 2 字节）", v.len());
+            self.response = v;
+            self.data = Vec::new();
+            return;
+        }
+
         let mut pos = 0;
 
         // 读取股票数量
         let num_stocks = u16_from_le_bytes(&v, pos);
         pos += 2;
 
-        self.data = Vec::with_capacity(num_stocks as usize);
+        // 检查数据长度是否足够：2(数量) + num_stocks * 29(每只股票)
+        let expected_len = 2 + (num_stocks as usize) * 29;
+        if v.len() < expected_len {
+            eprintln!("⚠️  股票列表数据长度不足: {} 字节（预期 {} 字节，包含 {} 只股票）",
+                v.len(), expected_len, num_stocks);
+            // 只解析能完整解析的股票数量
+            let available_stocks = (v.len() - 2) / 29;
+            self.data = Vec::with_capacity(available_stocks);
 
-        for _ in 0..num_stocks {
-            // 解析每只股票数据（29字节）
-            let stock = parse_security_list_data(&v, &mut pos);
-            self.data.push(stock);
+            for _ in 0..available_stocks {
+                if pos + 29 <= v.len() {
+                    let stock = parse_security_list_data(&v, &mut pos);
+                    self.data.push(stock);
+                } else {
+                    break;
+                }
+            }
+        } else {
+            self.data = Vec::with_capacity(num_stocks as usize);
+
+            for _ in 0..num_stocks {
+                let stock = parse_security_list_data(&v, &mut pos);
+                self.data.push(stock);
+            }
         }
 
         self.response = v;
@@ -119,10 +145,8 @@ fn parse_security_list_data(data: &[u8], pos: &mut usize) -> SecurityListData {
     // name (8字节，GBK编码)
     let name_bytes = &data[*pos..*pos + 8];
     *pos += 8;
-    // 尝试GBK解码，如果失败则使用默认值
-    let name = String::from_utf8_lossy(name_bytes)
-        .trim_end_matches('\x00')
-        .to_string();
+    // 使用 GBK 解码
+    let name = crate::tcp::helper::gbk_to_string_trim_null(name_bytes);
 
     // reversed_bytes1 (4字节)
     let _reversed_bytes1 = &data[*pos..*pos + 4];

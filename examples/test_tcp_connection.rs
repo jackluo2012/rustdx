@@ -1,20 +1,22 @@
 use rustdx_complete::tcp::{Tcp, Tdx};
+use rustdx_complete::tcp::ip::STOCK_IP;
+use rustdx_complete::tcp::stock::SecurityList;
 use std::io::Result;
 
 fn main() -> Result<()> {
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!("         TCP连接测试程序");
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-    
+
     println!("📡 正在连接到通达信服务器...");
     println!("   超时设置: 5秒");
-    println!("   服务器: {}", rustdx::tcp::ip::STOCK_IP[0]);
+    println!("   服务器: {}", STOCK_IP[0]);
     
     let mut tcp = Tcp::new()?;
     println!("✅ 连接成功！\n");
     
     println!("📊 正在获取证券列表...");
-    let mut list = rustdx::tcp::SecurityList::new(0, 0); // 深市，从0开始
+    let mut list = SecurityList::new(0, 0); // 深市，从0开始
     let result = list.recv_parsed(&mut tcp);
 
     match result {
