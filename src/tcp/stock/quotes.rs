@@ -142,8 +142,10 @@ impl<'a> Tdx for SecurityQuotes<'a> {
         self.data = Vec::with_capacity(num_stocks as usize);
 
         for i in 0..num_stocks {
-            // 检查是否还有足够的数据（每只股票至少需要约100字节）
-            if pos + 100 > v.len() {
+            // 检查是否还有足够的数据
+            // 实测每只股票约 80-90 字节（因为使用可变长度编码）
+            // 使用 70 字节作为保守估计
+            if pos + 70 > v.len() {
                 eprintln!("⚠️  行情数据不完整，只解析了 {}/{} 只股票", i, num_stocks);
                 break;
             }

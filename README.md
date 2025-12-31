@@ -3,7 +3,7 @@
 [<img alt="github" src="https://img.shields.io/github/license/zjp-CN/rustdx?color=blue" height="20">](https://github.com/zjp-CN/rustdx)
 [<img alt="github" src="https://img.shields.io/github/issues/zjp-CN/rustdx?color=db2043" height="20">](https://github.com/zjp-CN/rustdx/issues)
 [<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-complete?style=flat&color=fc8d62&logo=rust&label=rustdx-complete" height="20">](https://crates.io/crates/rustdx-complete)
-[<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-complete/0.6.0?style=flat&color=green&logo=rust&logoColor=white&label=v0.6.0" height="20">](https://crates.io/crates/rustdx-complete)
+[<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-complete/0.6.1?style=flat&color=green&logo=rust&logoColor=white&label=v0.6.1" height="20">](https://crates.io/crates/rustdx-complete)
 [<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-rustdx-66c2a5?style=flat&labelColor=555555&logoColor=white&logo=data:image/svg+xml;base64,PHN2ZyByb2xlPSJpbWciIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDUxMiA1MTIiPjxwYXRoIGZpbGw9IiNmNWY1ZjUiIGQ9Ik00ODguNiAyNTAuMkwzOTIgMjE0VjEwNS41YzAtMTUtOS4zLTI4LjQtMjMuNC0zMy43bC0xMDAtMzcuNWMtOC4xLTMuMS0xNy4xLTMuMS0yNS4zIDBsLTEwMCAzNy41Yy0xNC4xIDUuMy0yMy40IDE4LjctMjMuNCAzMy43VjIxNGwtOTYuNiAzNi4yQzkuMyAyNTUuNSAwIDI2OC45IDAgMjgzLjlWMzk0YzAgMTMuNiA3LjcgMjYuMSAxOS45IDMyLjJsMTAwIDUwYzEwLjEgNS4xIDIyLjEgNS4xIDMyLjIgMGwxMDMuOS01MiAxMDMuOSA1MmMxMC4xIDUuMSAyMi4xIDUuMSAzMi4yIDBsMTAwLTUwYzEyLjItNi4xIDE5LjktMTguNiAxOS45LTMyLjJWMjgzLjljMC0xNS05LjMtMjguNC0yMy40LTMzLjd6TTM1OCAyMTQuOGwtODUgMzEuOXYtNjguMmw4NS0zN3Y3My4zek0xNTQgMTA0LjFsMTAyLTM4LjIgMTAyIDM4LjJ2LjZsLTEwMiA0MS40LTEwMi00MS40di0uNnptODQgMjkxLjFsLTg1IDQyLjV2LTc5LjFsODUtMzguOHY3NS40em0wLTExMmwtMTAyIDQxLjQtMTAyLTQxLjR2LS42bDEwMi0zOC4yIDEwMiAzOC4ydi42em0yNDAgMTEybC04NSA0Mi41di03OS4xbDg1LTM4Ljh2NzUuNHptMC0xMTJsLTEwMiA0MS40LTEwMi00MS40di0uNmwxMDItMzguMiAxMDIgMzguMnYuNnoiPjwvcGF0aD48L3N2Zz4K" height="20">](https://docs.rs/rustdx)
 [<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-cmd?style=flat&color=fc8d62&logo=rust&label=rustdx-cmd" height="20">](https://crates.io/crates/rustdx-cmd)
 [<img alt="build status" src="https://github.com/zjp-CN/rustdx/workflows/Release%20CI/badge.svg" height="20">](https://github.com/zjp-CN/rustdx/actions)
@@ -17,11 +17,29 @@
 1. 一个 Rust 通用库 [rustdx-complete](https://crates.io/crates/rustdx-complete)；
 2. 一个命令行工具 [rustdx-cmd](https://crates.io/crates/rustdx-cmd)。
 
-## 📝 最新更新 (v0.6.0 - 已发布)
+## 📝 最新更新 (v0.6.1 - 2025-12-31)
 
-> **2025-12-30**: v0.6.0 已成功发布到 [crates.io](https://crates.io/crates/rustdx-complete) ✅
+> **重要修复**: 修复 SecurityQuotes 数据不完整问题，确保所有股票行情数据都能正确返回 ✅
 
-### 🔧 v0.6.0 重要修复
+### 🔧 v0.6.1 修复内容
+
+**修复 SecurityQuotes 数据不完整问题**
+- ✅ 调整边界检查从 100 字节改为 70 字节
+- ✅ 修复单只股票解析失败的问题（0/1 → 1/1）
+- ✅ 修复多只股票数据丢失的问题（3/4 → 4/4）
+- ✅ 所有 14 个示例程序测试通过（100%）
+
+### 📦 安装
+
+```bash
+# Cargo.toml
+[dependencies]
+rustdx-complete = "0.6"  # 推荐：使用 "=0.6.1"
+```
+
+---
+
+## 📝 历史版本 (v0.6.0 - 2025-12-30)
 
 **1. 修复中文编码显示问题**
 - ✅ 修复 GBK 编码的中文数据显示为乱码的问题
