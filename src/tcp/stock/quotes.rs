@@ -208,26 +208,26 @@ fn parse_quote(data: &[u8], pos: &mut usize) -> QuoteData {
     let bid1_vol = price(data, pos);
     let ask1_vol = price(data, pos);
 
-    // bid2-5, ask2-5及其成交量（暂时跳过，简化实现）
-    let _bid2 = price(data, pos);
-    let _ask2 = price(data, pos);
-    let _bid2_vol = price(data, pos);
-    let _ask2_vol = price(data, pos);
+    // bid2-5, ask2-5及其成交量
+    let bid2 = price(data, pos);
+    let ask2 = price(data, pos);
+    let bid2_vol = price(data, pos);
+    let ask2_vol = price(data, pos);
 
-    let _bid3 = price(data, pos);
-    let _ask3 = price(data, pos);
-    let _bid3_vol = price(data, pos);
-    let _ask3_vol = price(data, pos);
+    let bid3 = price(data, pos);
+    let ask3 = price(data, pos);
+    let bid3_vol = price(data, pos);
+    let ask3_vol = price(data, pos);
 
-    let _bid4 = price(data, pos);
-    let _ask4 = price(data, pos);
-    let _bid4_vol = price(data, pos);
-    let _ask4_vol = price(data, pos);
+    let bid4 = price(data, pos);
+    let ask4 = price(data, pos);
+    let bid4_vol = price(data, pos);
+    let ask4_vol = price(data, pos);
 
-    let _bid5 = price(data, pos);
-    let _ask5 = price(data, pos);
-    let _bid5_vol = price(data, pos);
-    let _ask5_vol = price(data, pos);
+    let bid5 = price(data, pos);
+    let ask5 = price(data, pos);
+    let bid5_vol = price(data, pos);
+    let ask5_vol = price(data, pos);
 
     // reversed_bytes4-9, active2（暂时跳过）
     let _reversed_bytes4 = u16_from_le_bytes(data, *pos);
@@ -243,7 +243,7 @@ fn parse_quote(data: &[u8], pos: &mut usize) -> QuoteData {
     // 计算实际价格（除以100）
     let price_calc = price_rel as f64 / 100.0;
 
-    // 暂时简化实现，主要返回核心字段
+    // 返回完整的五档买卖盘数据
     QuoteData {
         code,
         name: String::new(), // 名称需要另外查询
@@ -258,6 +258,22 @@ fn parse_quote(data: &[u8], pos: &mut usize) -> QuoteData {
         ask1: ask1 as f64 / 100.0,
         bid1_vol: bid1_vol as f64 / 100.0,
         ask1_vol: ask1_vol as f64 / 100.0,
+        bid2: bid2 as f64 / 100.0,
+        ask2: ask2 as f64 / 100.0,
+        bid2_vol: bid2_vol as f64 / 100.0,
+        ask2_vol: ask2_vol as f64 / 100.0,
+        bid3: bid3 as f64 / 100.0,
+        ask3: ask3 as f64 / 100.0,
+        bid3_vol: bid3_vol as f64 / 100.0,
+        ask3_vol: ask3_vol as f64 / 100.0,
+        bid4: bid4 as f64 / 100.0,
+        ask4: ask4 as f64 / 100.0,
+        bid4_vol: bid4_vol as f64 / 100.0,
+        ask4_vol: ask4_vol as f64 / 100.0,
+        bid5: bid5 as f64 / 100.0,
+        ask5: ask5 as f64 / 100.0,
+        bid5_vol: bid5_vol as f64 / 100.0,
+        ask5_vol: ask5_vol as f64 / 100.0,
         change: 0.0,
         change_percent: reversed_bytes9,
         time: 0,
@@ -269,7 +285,7 @@ fn vol_amount(ivol: i32) -> f64 {
     crate::tcp::helper::vol_amount(ivol)
 }
 
-/// 股票实时行情数据。
+/// 股票实时行情数据（完整五档买卖盘）。
 #[derive(Debug, Default, Clone, serde::Serialize)]
 pub struct QuoteData {
     /// 股票代码（6位）
@@ -302,6 +318,38 @@ pub struct QuoteData {
     pub bid1_vol: f64,
     /// 卖一量（手）
     pub ask1_vol: f64,
+    /// 买二价
+    pub bid2: f64,
+    /// 卖二价
+    pub ask2: f64,
+    /// 买二量（手）
+    pub bid2_vol: f64,
+    /// 卖二量（手）
+    pub ask2_vol: f64,
+    /// 买三价
+    pub bid3: f64,
+    /// 卖三价
+    pub ask3: f64,
+    /// 买三量（手）
+    pub bid3_vol: f64,
+    /// 卖三量（手）
+    pub ask3_vol: f64,
+    /// 买四价
+    pub bid4: f64,
+    /// 卖四价
+    pub ask4: f64,
+    /// 买四量（手）
+    pub bid4_vol: f64,
+    /// 卖四量（手）
+    pub ask4_vol: f64,
+    /// 买五价
+    pub bid5: f64,
+    /// 卖五价
+    pub ask5: f64,
+    /// 买五量（手）
+    pub bid5_vol: f64,
+    /// 卖五量（手）
+    pub ask5_vol: f64,
     /// 时间戳
     pub time: u32,
 }
