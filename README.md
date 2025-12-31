@@ -17,22 +17,35 @@
 1. 一个 Rust 通用库 [rustdx-complete](https://crates.io/crates/rustdx-complete)；
 2. 一个命令行工具 [rustdx-cmd](https://crates.io/crates/rustdx-cmd)。
 
-## 📝 最新更新 (v0.6.2 - 2025-12-31)
+## 📝 最新更新 (v0.6.4 - 2025-12-31)
 
-> **文档修复**: 修复 README 中所有代码示例的 API 错误，确保用户能够正确使用 ✅
+> **重要功能更新**: 补充完整五档买卖盘数据，完全对标通达信实时行情协议 ✅
 
-### 📝 v0.6.2 文档修复
+### 🎉 v0.6.4 重要更新
 
-**修复 9 处代码示例错误**
-- ✅ 版本号错误：0.5 → 0.6
-- ✅ MinuteTime API 参数错误
-- ✅ Transaction API 参数错误
-- ✅ SecurityList API 参数错误
-- ✅ 移除不存在的字段引用
-- ✅ 修复 DateTime Display 问题
-- ✅ 修复 unwrap panic 风险
+**补充 SecurityQuotes 完整五档买卖盘字段**
+- ✅ 新增 bid2-5, ask2-5（买二到买五、卖二到卖五价格）
+- ✅ 新增 bid2_vol-5_vol, ask2_vol-5_vol（买二到买五、卖二到卖五成交量）
+- ✅ 完全对标通达信实时行情数据结构
+- ✅ 与 pytdx 的 get_security_quotes 功能一致
 
-所有示例代码已测试验证，可直接运行！
+**新增字段示例**:
+```rust
+pub struct QuoteData {
+    // ...原有字段
+    pub bid1: f64,   // 买一价
+    pub ask1: f64,   // 卖一价
+    pub bid1_vol: f64,  // 买一量
+    pub ask1_vol: f64,  // 卖一量
+    // ✨ 新增五档买卖盘（共16个新字段）
+    pub bid2: f64, pub ask2: f64, pub bid2_vol: f64, pub ask2_vol: f64,
+    pub bid3: f64, pub ask3: f64, pub bid3_vol: f64, pub ask3_vol: f64,
+    pub bid4: f64, pub ask4: f64, pub bid4_vol: f64, pub ask4_vol: f64,
+    pub bid5: f64, pub ask5: f64, pub bid5_vol: f64, pub ask5_vol: f64,
+}
+```
+
+### 📝 v0.6.2 文档修复（历史版本）
 
 ### 🔧 v0.6.1 重要修复（历史版本）
 
@@ -53,7 +66,7 @@
 ```bash
 # Cargo.toml
 [dependencies]
-rustdx-complete = "0.6.2"
+rustdx-complete = "0.6.4"
 ```
 
 ---
@@ -83,7 +96,7 @@ rustdx-complete = "0.6.2"
 ```bash
 # Cargo.toml
 [dependencies]
-rustdx-complete = "0.6.2"
+rustdx-complete = "0.6.4"
 ```
 
 或使用 cargo add：
@@ -113,7 +126,7 @@ rustdx 是一个功能完整的 A 股数据获取库，完全对标 pytdx 的核
 
 ```toml
 [dependencies]
-rustdx-complete = "0.6.2"
+rustdx-complete = "0.6.4"
 ```
 
 ### 使用示例
@@ -273,7 +286,7 @@ cd my_stock_app
 
 ```toml
 [dependencies]
-rustdx-complete = "0.6.2"
+rustdx-complete = "0.6.4"
 ```
 
 或使用 cargo add：
@@ -356,6 +369,14 @@ for quote in quotes.result() {
     println!("成交额: {:.0}", quote.amount);
     println!("买一: {:.2} × {:.0}", quote.bid1, quote.bid1_vol);
     println!("卖一: {:.2} × {:.0}", quote.ask1, quote.ask1_vol);
+    println!("买二: {:.2} × {:.0}", quote.bid2, quote.bid2_vol);
+    println!("卖二: {:.2} × {:.0}", quote.ask2, quote.ask2_vol);
+    println!("买三: {:.2} × {:.0}", quote.bid3, quote.bid3_vol);
+    println!("卖三: {:.2} × {:.0}", quote.ask3, quote.ask3_vol);
+    println!("买四: {:.2} × {:.0}", quote.bid4, quote.bid4_vol);
+    println!("卖四: {:.2} × {:.0}", quote.ask4, quote.ask4_vol);
+    println!("买五: {:.2} × {:.0}", quote.bid5, quote.bid5_vol);
+    println!("卖五: {:.2} × {:.0}", quote.ask5, quote.ask5_vol);
     println!("涨跌幅: {:.2}%", quote.change_percent);
     println!();
 }

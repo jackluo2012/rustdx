@@ -1,6 +1,6 @@
 [package]
 name        = "rustdx-cmd"
-version     = "0.6.3"
+version     = "0.6.4"
 edition     = "2021"
 license     = "MIT"
 build       = "build.rs"
@@ -28,7 +28,7 @@ chrono = { workspace = true }
 thiserror = { workspace = true }
 
 [dependencies.rustdx-complete]
-version  = "0.6.3"
+version  = "0.6.4"
 path = "../"
 
 [dependencies.ureq]

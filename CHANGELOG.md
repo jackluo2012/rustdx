@@ -2,6 +2,102 @@
 
 ## [Unreleased]
 
+## v0.6.4 (2025-12-31)
+
+### 🎉 重要更新 - 完整五档买卖盘数据
+
+**补充 SecurityQuotes 完整五档买卖盘字段**
+- ✅ 新增 bid2-5, ask2-5（买二到买五、卖二到卖五价格）
+- ✅ 新增 bid2_vol-5_vol, ask2_vol-5_vol（买二到买五、卖二到卖五成交量）
+- ✅ 完全对标通达信实时行情数据结构
+- ✅ 与 pytdx 的 get_security_quotes 功能一致
+
+**新增字段（共20个字段）**
+```rust
+pub struct QuoteData {
+    // 原有字段...
+    /// 买一价
+    pub bid1: f64,
+    /// 卖一价
+    pub ask1: f64,
+    /// 买一量（手）
+    pub bid1_vol: f64,
+    /// 卖一量（手）
+    pub ask1_vol: f64,
+    // ✨ 新增字段
+    /// 买二价
+    pub bid2: f64,
+    /// 卖二价
+    pub ask2: f64,
+    /// 买二量（手）
+    pub bid2_vol: f64,
+    /// 卖二量（手）
+    pub ask2_vol: f64,
+    /// 买三价
+    pub bid3: f64,
+    /// 卖三价
+    pub ask3: f64,
+    /// 买三量（手）
+    pub bid3_vol: f64,
+    /// 卖三量（手）
+    pub ask3_vol: f64,
+    /// 买四价
+    pub bid4: f64,
+    /// 卖四价
+    pub ask4: f64,
+    /// 买四量（手）
+    pub bid4_vol: f64,
+    /// 卖四量（手）
+    pub ask4_vol: f64,
+    /// 买五价
+    pub bid5: f64,
+    /// 卖五价
+    pub ask5: f64,
+    /// 买五量（手）
+    pub bid5_vol: f64,
+    /// 卖五量（手）
+    pub ask5_vol: f64,
+    // ...其他字段
+}
+```
+
+### 📝 使用示例
+
+```rust
+use rustdx_complete::tcp::{Tcp, Tdx};
+use rustdx_complete::tcp::stock::quotes::SecurityQuotes;
+
+let mut tcp = Tcp::new()?;
+let mut quotes = SecurityQuotes::new(vec![
+    (0, "000001"),  // 平安银行
+    (1, "600000"),  // 浦发银行
+]);
+
+quotes.recv_parsed(&mut tcp)?;
+
+for quote in quotes.result() {
+    println!("股票: {}", quote.code);
+    println!("当前价: {}", quote.price);
+    println!("买一: {} ({})  卖一: {} ({})",
+        quote.bid1, quote.bid1_vol, quote.ask1, quote.ask1_vol);
+    println!("买二: {} ({})  卖二: {} ({})",
+        quote.bid2, quote.bid2_vol, quote.ask2, quote.ask2_vol);
+    println!("买三: {} ({})  卖三: {} ({})",
+        quote.bid3, quote.bid3_vol, quote.ask3, quote.ask3_vol);
+    println!("买四: {} ({})  卖四: {} ({})",
+        quote.bid4, quote.bid4_vol, quote.ask4, quote.ask4_vol);
+    println!("买五: {} ({})  卖五: {} ({})",
+        quote.bid5, quote.bid5_vol, quote.ask5, quote.ask5_vol);
+}
+```
+
+### 💡 技术细节
+
+- ✅ 代码中已解析五档买卖盘数据，但未添加到 QuoteData 结构体
+- ✅ 现在完全暴露所有五档买卖盘字段给用户
+- ✅ 保持向后兼容，原有字段不变
+- ✅ 完全对标通达信协议规范
+
 ## v0.6.3 (2025-12-31)
 
 ### 📝 文档更新
