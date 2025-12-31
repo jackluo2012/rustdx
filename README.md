@@ -3,7 +3,7 @@
 [<img alt="github" src="https://img.shields.io/github/license/zjp-CN/rustdx?color=blue" height="20">](https://github.com/zjp-CN/rustdx)
 [<img alt="github" src="https://img.shields.io/github/issues/zjp-CN/rustdx?color=db2043" height="20">](https://github.com/zjp-CN/rustdx/issues)
 [<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-complete?style=flat&color=fc8d62&logo=rust&label=rustdx-complete" height="20">](https://crates.io/crates/rustdx-complete)
-[<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-complete/0.6.1?style=flat&color=green&logo=rust&logoColor=white&label=v0.6.1" height="20">](https://crates.io/crates/rustdx-complete)
+[<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-complete/0.6.2?style=flat&color=green&logo=rust&logoColor=white&label=v0.6.2" height="20">](https://crates.io/crates/rustdx-complete)
 [<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-rustdx-66c2a5?style=flat&labelColor=555555&logoColor=white&logo=data:image/svg+xml;base64,PHN2ZyByb2xlPSJpbWciIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDUxMiA1MTIiPjxwYXRoIGZpbGw9IiNmNWY1ZjUiIGQ9Ik00ODguNiAyNTAuMkwzOTIgMjE0VjEwNS41YzAtMTUtOS4zLTI4LjQtMjMuNC0zMy43bC0xMDAtMzcuNWMtOC4xLTMuMS0xNy4xLTMuMS0yNS4zIDBsLTEwMCAzNy41Yy0xNC4xIDUuMy0yMy40IDE4LjctMjMuNCAzMy43VjIxNGwtOTYuNiAzNi4yQzkuMyAyNTUuNSAwIDI2OC45IDAgMjgzLjlWMzk0YzAgMTMuNiA3LjcgMjYuMSAxOS45IDMyLjJsMTAwIDUwYzEwLjEgNS4xIDIyLjEgNS4xIDMyLjIgMGwxMDMuOS01MiAxMDMuOSA1MmMxMC4xIDUuMSAyMi4xIDUuMSAzMi4yIDBsMTAwLTUwYzEyLjItNi4xIDE5LjktMTguNiAxOS45LTMyLjJWMjgzLjljMC0xNS05LjMtMjguNC0yMy40LTMzLjd6TTM1OCAyMTQuOGwtODUgMzEuOXYtNjguMmw4NS0zN3Y3My4zek0xNTQgMTA0LjFsMTAyLTM4LjIgMTAyIDM4LjJ2LjZsLTEwMiA0MS40LTEwMi00MS40di0uNnptODQgMjkxLjFsLTg1IDQyLjV2LTc5LjFsODUtMzguOHY3NS40em0wLTExMmwtMTAyIDQxLjQtMTAyLTQxLjR2LS42bDEwMi0zOC4yIDEwMiAzOC4ydi42em0yNDAgMTEybC04NSA0Mi41di03OS4xbDg1LTM4Ljh2NzUuNHptMC0xMTJsLTEwMiA0MS40LTEwMi00MS40di0uNmwxMDItMzguMiAxMDIgMzguMnYuNnoiPjwvcGF0aD48L3N2Zz4K" height="20">](https://docs.rs/rustdx)
 [<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-cmd?style=flat&color=fc8d62&logo=rust&label=rustdx-cmd" height="20">](https://crates.io/crates/rustdx-cmd)
 [<img alt="build status" src="https://github.com/zjp-CN/rustdx/workflows/Release%20CI/badge.svg" height="20">](https://github.com/zjp-CN/rustdx/actions)
@@ -17,11 +17,30 @@
 1. 一个 Rust 通用库 [rustdx-complete](https://crates.io/crates/rustdx-complete)；
 2. 一个命令行工具 [rustdx-cmd](https://crates.io/crates/rustdx-cmd)。
 
-## 📝 最新更新 (v0.6.1 - 2025-12-31)
+## 📝 最新更新 (v0.6.2 - 2025-12-31)
 
-> **重要修复**: 修复 SecurityQuotes 数据不完整问题，确保所有股票行情数据都能正确返回 ✅
+> **文档修复**: 修复 README 中所有代码示例的 API 错误，确保用户能够正确使用 ✅
 
-### 🔧 v0.6.1 修复内容
+### 📝 v0.6.2 文档修复
+
+**修复 9 处代码示例错误**
+- ✅ 版本号错误：0.5 → 0.6
+- ✅ MinuteTime API 参数错误
+- ✅ Transaction API 参数错误
+- ✅ SecurityList API 参数错误
+- ✅ 移除不存在的字段引用
+- ✅ 修复 DateTime Display 问题
+- ✅ 修复 unwrap panic 风险
+
+所有示例代码已测试验证，可直接运行！
+
+### 🔧 v0.6.1 重要修复（历史版本）
+
+**修复 SecurityQuotes 数据不完整问题**
+- ✅ 调整边界检查从 100 字节改为 70 字节
+- ✅ 修复单只股票解析失败的问题（0/1 → 1/1）
+- ✅ 修复多只股票数据丢失的问题（3/4 → 4/4）
+- ✅ 所有 14 个示例程序测试通过（100%）
 
 **修复 SecurityQuotes 数据不完整问题**
 - ✅ 调整边界检查从 100 字节改为 70 字节
@@ -117,7 +136,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     quotes.recv_parsed(&mut tcp)?;
 
     for quote in quotes.result() {
-        println!("{}: {} - 当前价: {}", quote.code, quote.name, quote.price);
+        println!("{}: 当前价: {}", quote.code, quote.price);
     }
 
     Ok(())
@@ -188,12 +207,12 @@ use rustdx_complete::tcp::{Tcp, Tdx};
 use rustdx_complete::tcp::stock::MinuteTime;
 
 let mut tcp = Tcp::new()?;
-let mut minute = MinuteTime::new(0, "000001", 0); // 深市、平安银行、从第0条开始
+let mut minute = MinuteTime::new(0, "000001"); // 深市、平安银行
 
 minute.recv_parsed(&mut tcp)?;
 
-for data in minute.result().iter().take(10) { // 只打印前10条
-    println!("{} : 价格={} 成交量={}", data.time, data.price, data.vol);
+for (i, data) in minute.result().iter().take(10).enumerate() {
+    println!("{} : 价格={} 成交量={}", i + 1, data.price, data.vol);
 }
 ```
 
@@ -204,7 +223,7 @@ use rustdx_complete::tcp::{Tcp, Tdx};
 use rustdx_complete::tcp::stock::Transaction;
 
 let mut tcp = Tcp::new()?;
-let mut transaction = Transaction::new(0, "000001", 0); // 深市、平安银行、从第0条开始
+let mut transaction = Transaction::new(0, "000001", 0, 20); // 深市、平安银行、从第0条开始获取20笔
 
 transaction.recv_parsed(&mut tcp)?;
 
@@ -254,7 +273,7 @@ cd my_stock_app
 
 ```toml
 [dependencies]
-rustdx-complete = "0.5"
+rustdx-complete = "0.6"
 ```
 
 或使用 cargo add：
@@ -395,26 +414,26 @@ use rustdx_complete::tcp::stock::Kline;
 let mut tcp = Tcp::new()?;
 
 // Kline参数：market, code, category, start, count
-// category: 5=日K, 6=周K, 7=月K, 8=1分钟K, 9=日K(新)
-let mut kline = Kline::new(1, "600000", 9, 0, 10);  // 获取浦发银行最近10天日K线
+// category: 9=日K(新)
+let mut kline = Kline::new(1, "600000", 9, 0, 10);  // 沪市、浦发银行、日线、从0开始获取10条
 
 kline.recv_parsed(&mut tcp)?;
 
 println!("浦发银行最近10日K线：");
 for bar in kline.result() {
     println!(
-        "{}: 开={:.2} 高={:.2} 低={:.2} 收={:.2} 量={:.0}",
+        "{:?}: 开={:.2} 高={:.2} 低={:.2} 收={:.2} 量={:.0}",
         bar.dt, bar.open, bar.high, bar.low, bar.close, bar.vol
     );
 }
 ```
 
 **K线周期说明**：
+- `category = 9`: 日K线（推荐）
 - `category = 5`: 5分钟K线
 - `category = 6`: 15分钟K线
 - `category = 7`: 30分钟K线
 - `category = 8`: 1小时K线
-- `category = 9`: 日K线
 - `category = 10`: 周K线
 - `category = 11`: 月K线
 
@@ -461,15 +480,15 @@ use rustdx_complete::tcp::{Tcp, Tdx};
 use rustdx_complete::tcp::stock::MinuteTime;
 
 let mut tcp = Tcp::new()?;
-let mut minute = MinuteTime::new(0, "000001", 0);  // 平安银行，从第0条开始
+let mut minute = MinuteTime::new(0, "000001");  // 平安银行
 
 minute.recv_parsed(&mut tcp)?;
 
 println!("平安银行分时数据（前10条）：");
 for (i, data) in minute.result().iter().take(10).enumerate() {
     println!(
-        "{}: 时间={} 价格={:.2} 成交量={:.0}",
-        i + 1, data.time, data.price, data.vol
+        "{}: 价格={:.2} 成交量={:.0}",
+        i + 1, data.price, data.vol
     );
 }
 
@@ -492,7 +511,7 @@ use rustdx_complete::tcp::{Tcp, Tdx};
 use rustdx_complete::tcp::stock::Transaction;
 
 let mut tcp = Tcp::new()?;
-let mut transaction = Transaction::new(0, "000001", 0);  // 从第0条开始
+let mut transaction = Transaction::new(0, "000001", 0, 20);  // 从第0条开始获取20笔
 
 transaction.recv_parsed(&mut tcp)?;
 
@@ -511,7 +530,10 @@ for data in transaction.result().iter().take(5) {
 }
 
 println!("...");
-println!("最新成交序号: {}", transaction.result().last().unwrap().num);
+// 安全地获取最后一笔成交
+if let Some(last) = transaction.result().last() {
+    println!("最新成交序号: {}", last.num);
+}
 ```
 
 **买卖方向说明**：
@@ -530,15 +552,15 @@ use rustdx_complete::tcp::stock::SecurityList;
 let mut tcp = Tcp::new()?;
 
 // 第一次获取：从0开始，获取1000只股票
-let mut list = SecurityList::new(0);  // start参数：0, 1000, 2000...
+let mut list = SecurityList::new(0, 0);  // market=0(深市), start=0
 
 list.recv_parsed(&mut tcp)?;
 
 println!("股票列表（前10只）：");
 for (i, stock) in list.result().iter().take(10).enumerate() {
     println!(
-        "{}: 代码={}, 名称={}, 市场={}",
-        i + 1, stock.code, stock.name, stock.market
+        "{}: 代码={}, 名称={}",
+        i + 1, stock.code, stock.name
     );
 }
 
@@ -548,8 +570,10 @@ println!("本批次获取: {} 只股票", list.result().len());
 
 **分页说明**：
 - 每次最多获取 1000 只股票
-- `start` 参数：0, 1000, 2000, ...
-- 自动过滤到 `start` 位置的股票
+- 参数1：`market` (0=深市, 1=沪市)
+- 参数2：`start` (0, 1000, 2000, ...) - 起始位置
+- 示例：`SecurityList::new(0, 0)` - 深市从0开始获取
+- 示例：`SecurityList::new(0, 1000)` - 深市从1000开始获取
 
 ### 错误处理
 
