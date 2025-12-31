@@ -53,7 +53,7 @@
 ```bash
 # Cargo.toml
 [dependencies]
-rustdx-complete = "0.6"  # 推荐：使用 "=0.6.1"
+rustdx-complete = "0.6.2"
 ```
 
 ---
@@ -83,7 +83,7 @@ rustdx-complete = "0.6"  # 推荐：使用 "=0.6.1"
 ```bash
 # Cargo.toml
 [dependencies]
-rustdx-complete = "0.6"  # 或 "=0.6.0"
+rustdx-complete = "0.6.2"
 ```
 
 或使用 cargo add：
@@ -113,7 +113,7 @@ rustdx 是一个功能完整的 A 股数据获取库，完全对标 pytdx 的核
 
 ```toml
 [dependencies]
-rustdx-complete = "0.6"
+rustdx-complete = "0.6.2"
 ```
 
 ### 使用示例
@@ -273,7 +273,7 @@ cd my_stock_app
 
 ```toml
 [dependencies]
-rustdx-complete = "0.6"
+rustdx-complete = "0.6.2"
 ```
 
 或使用 cargo add：
