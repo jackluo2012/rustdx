@@ -2,6 +2,72 @@
 
 ## [Unreleased]
 
+## v0.6.6 (2025-12-31)
+
+### 🎉 重大更新 - 股票行业分类和概念板块查询功能
+
+**新增股票行业分类映射模块 (industry_mapping)**
+- ✅ 通达信行业代码自动映射到中文名称（银行、证券、酒类等）
+- ✅ 省份代码自动映射（深圳、贵州、四川等）
+- ✅ 行业大类分类（金融、消费、科技、材料、能源等）
+- ✅ 支持主流行业 40+ 个分类
+- ✅ 提供 3 个核心函数：`get_industry_name()`, `get_province_name()`, `get_industry_info()`
+
+**新增东方财富概念板块映射模块 (concept_mapping)**
+- ✅ 新能源汽车、锂电池、芯片、人工智能等 10+ 热门概念
+- ✅ 每个概念提供成分股列表（前20只）
+- ✅ 与通达信行业分类形成互补，全面分析股票特征
+- ✅ 提供 Python 脚本 `generate_concept_mapping.py` 自动生成映射数据
+- ✅ 提供 3 个核心函数：`get_concept_stocks()`, `get_concept_names()`, `get_concept_info()`
+
+**双数据源综合应用**
+- ✅ 通达信：基本面分析、行业分类、实时行情
+- ✅ 东方财富：市场热点、概念板块、主题投资
+- ✅ 两者结合可进行板块轮动、股票筛选、投资组合分析
+
+**新增示例程序**
+- `test_industry_info` - 行业信息查询示例（8个测试股票）
+- `test_concept_query` - 概念板块查询示例
+- `test_combined_info` - 双数据源综合应用示例
+
+**新增文档**
+- `INDUSTRY_MAPPING.md` - 行业分类使用指南
+- `CONCEPT_STOCK.md` - 概念板块使用指南
+
+**技术细节**
+- 新增模块：2个（industry_mapping, concept_mapping）
+- 新增示例程序：3个
+- 新增文档：2个
+- 代码行数：约 +800 行
+- 所有测试通过：37/37 ✅
+
+**使用示例**
+```rust
+use rustdx_complete::tcp::{Tcp, Tdx};
+use rustdx_complete::tcp::stock::{FinanceInfo, get_industry_name, get_concept_stocks};
+
+// 获取股票的行业信息
+let mut tcp = Tcp::new()?;
+let mut finance = FinanceInfo::new(1, "600519");
+finance.recv_parsed(&mut tcp)?;
+let info = &finance.result()[0];
+
+println!("行业: {}", get_industry_name(info.industry));  // 酒类
+
+// 查询热门概念板块成分股
+if let Some(stocks) = get_concept_stocks("新能源汽车") {
+    // 查询成分股...
+}
+```
+
+### 💡 升级建议
+
+**所有用户强烈建议升级到 v0.6.6**
+
+本次更新新增了行业分类和概念板块查询功能，让rustdx从纯数据获取工具升级为具备基本面分析和热点追踪能力的综合平台。
+
+---
+
 ## v0.6.4 (2025-12-31)
 
 ### 🎉 重要更新 - 完整五档买卖盘数据

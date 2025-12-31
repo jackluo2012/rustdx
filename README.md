@@ -3,7 +3,7 @@
 [<img alt="github" src="https://img.shields.io/github/license/zjp-CN/rustdx?color=blue" height="20">](https://github.com/zjp-CN/rustdx)
 [<img alt="github" src="https://img.shields.io/github/issues/zjp-CN/rustdx?color=db2043" height="20">](https://github.com/zjp-CN/rustdx/issues)
 [<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-complete?style=flat&color=fc8d62&logo=rust&label=rustdx-complete" height="20">](https://crates.io/crates/rustdx-complete)
-[<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-complete/0.6.2?style=flat&color=green&logo=rust&logoColor=white&label=v0.6.2" height="20">](https://crates.io/crates/rustdx-complete)
+[<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-complete/0.6.6?style=flat&color=green&logo=rust&logoColor=white&label=v0.6.6" height="20">](https://crates.io/crates/rustdx-complete)
 [<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-rustdx-66c2a5?style=flat&labelColor=555555&logoColor=white&logo=data:image/svg+xml;base64,PHN2ZyByb2xlPSJpbWciIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDUxMiA1MTIiPjxwYXRoIGZpbGw9IiNmNWY1ZjUiIGQ9Ik00ODguNiAyNTAuMkwzOTIgMjE0VjEwNS41YzAtMTUtOS4zLTI4LjQtMjMuNC0zMy43bC0xMDAtMzcuNWMtOC4xLTMuMS0xNy4xLTMuMS0yNS4zIDBsLTEwMCAzNy41Yy0xNC4xIDUuMy0yMy40IDE4LjctMjMuNCAzMy43VjIxNGwtOTYuNiAzNi4yQzkuMyAyNTUuNSAwIDI2OC45IDAgMjgzLjlWMzk0YzAgMTMuNiA3LjcgMjYuMSAxOS45IDMyLjJsMTAwIDUwYzEwLjEgNS4xIDIyLjEgNS4xIDMyLjIgMGwxMDMuOS01MiAxMDMuOSA1MmMxMC4xIDUuMSAyMi4xIDUuMSAzMi4yIDBsMTAwLTUwYzEyLjItNi4xIDE5LjktMTguNiAxOS45LTMyLjJWMjgzLjljMC0xNS05LjMtMjguNC0yMy40LTMzLjd6TTM1OCAyMTQuOGwtODUgMzEuOXYtNjguMmw4NS0zN3Y3My4zek0xNTQgMTA0LjFsMTAyLTM4LjIgMTAyIDM4LjJ2LjZsLTEwMiA0MS40LTEwMi00MS40di0uNnptODQgMjkxLjFsLTg1IDQyLjV2LTc5LjFsODUtMzguOHY3NS40em0wLTExMmwtMTAyIDQxLjQtMTAyLTQxLjR2LS42bDEwMi0zOC4yIDEwMiAzOC4ydi42em0yNDAgMTEybC04NSA0Mi41di03OS4xbDg1LTM4Ljh2NzUuNHptMC0xMTJsLTEwMiA0MS40LTEwMi00MS40di0uNmwxMDItMzguMiAxMDIgMzguMnYuNnoiPjwvcGF0aD48L3N2Zz4K" height="20">](https://docs.rs/rustdx)
 [<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-cmd?style=flat&color=fc8d62&logo=rust&label=rustdx-cmd" height="20">](https://crates.io/crates/rustdx-cmd)
 [<img alt="build status" src="https://github.com/zjp-CN/rustdx/workflows/Release%20CI/badge.svg" height="20">](https://github.com/zjp-CN/rustdx/actions)
@@ -17,9 +17,65 @@
 1. 一个 Rust 通用库 [rustdx-complete](https://crates.io/crates/rustdx-complete)；
 2. 一个命令行工具 [rustdx-cmd](https://crates.io/crates/rustdx-cmd)。
 
-## 📝 最新更新 (v0.6.4 - 2025-12-31)
+## 📝 最新更新 (v0.6.6 - 2025-12-31)
 
-> **重要功能更新**: 补充完整五档买卖盘数据，完全对标通达信实时行情协议 ✅
+> **重大功能更新**: 新增股票行业分类和概念板块查询功能，支持通达信和东方财富双数据源 ✅
+
+### 🎉 v0.6.6 新功能
+
+**1. 股票行业分类映射**
+- ✅ 通达信行业代码自动映射到行业名称（银行、证券、酒类等）
+- ✅ 省份代码自动映射（深圳、贵州、四川等）
+- ✅ 行业大类分类（金融、消费、科技、材料等）
+- ✅ 支持主流行业 40+ 个分类
+
+**2. 东方财富概念板块支持**
+- ✅ 新能源汽车、锂电池、芯片、人工智能等 10+ 热门概念
+- ✅ 每个概念提供成分股列表（前20只）
+- ✅ 与通达信行业分类形成互补，全面分析股票特征
+- ✅ 提供 Python 脚本自动生成映射数据
+
+**3. 双数据源综合应用**
+- ✅ 通达信：基本面分析、行业分类、实时行情
+- ✅ 东方财富：市场热点、概念板块、主题投资
+- ✅ 两者结合可进行板块轮动、股票筛选、投资组合分析
+
+**使用示例**:
+```rust
+use rustdx_complete::tcp::{Tcp, Tdx};
+use rustdx_complete::tcp::stock::{FinanceInfo, get_industry_name, get_province_name, get_concept_stocks};
+
+// 获取股票的行业信息
+let mut tcp = Tcp::new()?;
+let mut finance = FinanceInfo::new(1, "600519");  // 贵州茅台
+finance.recv_parsed(&mut tcp)?;
+let info = &finance.result()[0];
+
+println!("股票: {}", info.code);
+println!("行业: {}", get_industry_name(info.industry));  // 酒类
+println!("省份: {}", get_province_name(info.province));  // 贵州
+
+// 查询热门概念板块成分股
+if let Some(stocks) = get_concept_stocks("新能源汽车") {
+    println!("\n新能源汽车概念成分股:");
+    for stock in stocks.iter().take(5) {
+        println!("  {}: {}", stock.code, stock.name);
+    }
+}
+```
+
+**新增模块**:
+- `industry_mapping` - 行业和省份代码映射
+- `concept_mapping` - 概念板块成分股映射
+
+**新增示例程序**:
+- `test_industry_info` - 行业信息查询示例
+- `test_concept_query` - 概念板块查询示例
+- `test_combined_info` - 双数据源综合应用示例
+
+---
+
+## 📝 历史版本 (v0.6.4 - 2025-12-31)
 
 ### 🎉 v0.6.4 重要更新
 
@@ -66,7 +122,7 @@ pub struct QuoteData {
 ```bash
 # Cargo.toml
 [dependencies]
-rustdx-complete = "0.6.4"
+rustdx-complete = "0.6.6"
 ```
 
 ---
@@ -96,7 +152,7 @@ rustdx-complete = "0.6.4"
 ```bash
 # Cargo.toml
 [dependencies]
-rustdx-complete = "0.6.4"
+rustdx-complete = "0.6.6"
 ```
 
 或使用 cargo add：
@@ -126,7 +182,7 @@ rustdx 是一个功能完整的 A 股数据获取库，完全对标 pytdx 的核
 
 ```toml
 [dependencies]
-rustdx-complete = "0.6.4"
+rustdx-complete = "0.6.6"
 ```
 
 ### 使用示例
@@ -286,7 +342,7 @@ cd my_stock_app
 
 ```toml
 [dependencies]
-rustdx-complete = "0.6.4"
+rustdx-complete = "0.6.6"
 ```
 
 或使用 cargo add：
