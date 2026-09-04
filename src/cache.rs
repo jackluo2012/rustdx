@@ -282,13 +282,12 @@ impl FileCache {
             }
 
             // 读取过期时间
-            if let Ok(Some(expiry)) = self.read_expiry(&path) {
-                if Instant::now() >= expiry {
+            if let Ok(Some(expiry)) = self.read_expiry(&path)
+                && Instant::now() >= expiry {
                     // 文件已过期，删除
                     fs::remove_file(&path)?;
                     removed += 1;
                 }
-            }
         }
 
         Ok(removed)

@@ -206,19 +206,19 @@ pub fn setup_clickhouse(fq: bool, table: &str) -> Result<()> {
 }
 
 pub fn insert_clickhouse(output: &impl AsRef<Path>, table: &str, keep: bool) -> Result<()> {
-    use subprocess::{Exec, Redirection};
+    use std::process::{Command, Stdio};
     let query = format!("INSERT INTO {table} FORMAT CSVWithNames");
-    let capture = Exec::cmd("clickhouse-client")
-        .args(&["--query", &query])
-        .stdin(Redirection::File(File::open(output)?))
-        .capture()?;
-    if capture.success() {
+    let result = Command::new("clickhouse-client")
+        .args(["--query", &query])
+        .stdin(Stdio::from(File::open(output)?))
+        .output()?;
+    if result.status.success() {
         info!("成功插入数据到 clickhouse 数据库");
-        debug!("clickhouse 返回结果：{}", capture.stdout_str());
+        debug!("clickhouse 返回结果：{}", String::from_utf8_lossy(&result.stdout));
     } else {
         error!(
             "插入数据到 clickhouse 数据库时遇到：{}",
-            capture.stderr_str()
+            String::from_utf8_lossy(&result.stderr)
         );
     };
     keep_csv(output, keep)?;

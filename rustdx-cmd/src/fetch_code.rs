@@ -60,7 +60,8 @@ pub fn get_sz_stocks(set: &mut StockList) -> Result<usize> {
         "sz",
     );
     let bytes = &mut Vec::with_capacity(1 << 20);
-    ureq::get(url).call()?.into_reader().read_to_end(bytes)?;
+    let mut resp = ureq::get(url).call()?;
+    resp.body_mut().as_reader().read_to_end(bytes)?;
     let mut workbook = Xlsx::new(std::io::Cursor::new(bytes))?;
     // 每个单元格被解析的类型可能会不一样，所以把股票代码统一转化成字符型
     if let Some(Ok(range)) = workbook.worksheet_range_at(0) {
@@ -76,44 +77,27 @@ pub fn get_sz_stocks(set: &mut StockList) -> Result<usize> {
     }
 }
 
+fn cookie() -> String {
+    "ba17301551dcbaf9_gdp_user_key=; \
+     ba17301551dcbaf9_gdp_session_id=0876b773-38a3-44d0-bb4a-2b5569025b82; \
+     gdp_user_id=gioenc-2g8894g6%2C764a%2C50d8%2C8d6g%2C3bg6194752ce; \
+     ba17301551dcbaf9_gdp_session_id_0876b773-38a3-44d0-bb4a-2b5569025b82=true; \
+     JSESSIONID=0311A5533F5FD798EE9DAFDE6A1D70A7; \
+     ba17301551dcbaf9_gdp_sequence_ids=\
+     {%22globalKey%22:14%2C%22VISIT%22:2%2C%22PAGE%22:5%2C%22VIEW_CHANGE%22:2%2C%22CUSTOM%22:3%2C%22VIEW_CLICK%22:6}"
+        .to_string()
+}
+
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36";
 const ACCEPT_LANGUAGE: &str =
     "zh-CN,zh;q=0.9,de;q=0.8,ko;q=0.7,ru;q=0.6,it;q=0.5,ga;q=0.4,en;q=0.3";
 
-pub fn ureq_sz_with_headers(url: &str) -> ureq::Request {
-    ureq::get(url)
-        .set("ACCEPT", "*/*")
-        .set("ACCEPT_LANGUAGE", ACCEPT_LANGUAGE)
-        .set("CACHE_CONTROL", "no-cache")
-        .set("CONNECTION", "keep-alive")
-        .set("CONTENT_TYPE", "application/json")
-        .set("DNT", "1")
-        .set("PRAGMA", "no-cache")
-        .set("REFERER", "http://www.sse.com.cn/")
-        .set("USER_AGENT", USER_AGENT)
-}
-pub fn ureq_sh_with_headers(url: &str) -> ureq::Request {
-    let cookie = "ba17301551dcbaf9_gdp_user_key=; \
-                  ba17301551dcbaf9_gdp_session_id=0876b773-38a3-44d0-bb4a-2b5569025b82; \
-                  gdp_user_id=gioenc-2g8894g6%2C764a%2C50d8%2C8d6g%2C3bg6194752ce; \
-                  ba17301551dcbaf9_gdp_session_id_0876b773-38a3-44d0-bb4a-2b5569025b82=true; \
-                  JSESSIONID=0311A5533F5FD798EE9DAFDE6A1D70A7; \
-                  ba17301551dcbaf9_gdp_sequence_ids=\
-                  {%22globalKey%22:14%2C%22VISIT%22:2%2C%22PAGE%22:5%2C%22VIEW_CHANGE%22:2%2C%22CUSTOM%22:3%2C%22VIEW_CLICK%22:6}";
-    ureq::get(url)
-        .set("ACCEPT", "*/*")
-        .set("ACCEPT_LANGUAGE", ACCEPT_LANGUAGE)
-        .set("CACHE_CONTROL", "no-cache")
-        .set("CONNECTION", "keep-alive")
-        .set("COOKIE", cookie)
-        .set("PRAGMA", "no-cache")
-        .set("REFERER", "http://www.sse.com.cn/")
-        .set("USER_AGENT", USER_AGENT)
-}
 
 // 上交所 科创板 68 开头（目前 350 只，只需一次请求） => stockType=8, pagesize=400
 //        A 股 60 开头（目前 1650 只，只需一次请求） => stockType=1, pagesize=1700
-fn request_sh(stocktype: &str, pagesize: &str) -> ureq::Request {
+// 上交所 科创板 68 开头（目前 350 只，只需一次请求） => stockType=8, pagesize=400
+//        A 股 60 开头（目前 1650 只，只需一次请求） => stockType=1, pagesize=1700
+pub fn get_sh_stocks(set: &mut StockList, stocktype: &str, pagesize: &str) -> Result<usize> {
     let url = format!(
         "http://query.sse.com.cn/sseQuery/commonQuery.do?\
         jsonCallBack=jsonpCallback37525685&STOCK_TYPE={stocktype}\
@@ -122,13 +106,16 @@ fn request_sh(stocktype: &str, pagesize: &str) -> ureq::Request {
         &pageHelp.cacheSize=1&pageHelp.beginPage=1&pageHelp.pageSize={pagesize}\
         &pageHelp.pageNo=1&pageHelp.endPage=1&_=1680491539414"
     );
-    ureq_sh_with_headers(&url)
-}
-
-// 上交所 科创板 68 开头（目前 350 只，只需一次请求） => stockType=8, pagesize=400
-//        A 股 60 开头（目前 1650 只，只需一次请求） => stockType=1, pagesize=1700
-pub fn get_sh_stocks(set: &mut StockList, stocktype: &str, pagesize: &str) -> Result<usize> {
-    let text = request_sh(stocktype, pagesize).call()?.into_string()?;
+    let mut resp = ureq::get(&url)
+        .header("ACCEPT", "*/*")
+        .header("ACCEPT_LANGUAGE", ACCEPT_LANGUAGE)
+        .header("CACHE_CONTROL", "no-cache")
+        .header("COOKIE", cookie())
+        .header("PRAGMA", "no-cache")
+        .header("REFERER", "http://www.sse.com.cn/")
+        .header("USER_AGENT", USER_AGENT)
+        .call()?;
+    let text = resp.body_mut().read_to_string()?;
     let pos1 = text
         .find("total\":")
         .ok_or(anyhow!("`Total` field not found"))?

@@ -1,7 +1,7 @@
 [package]
 name        = "rustdx-complete"
 version     = "1.0.1"
-edition     = "2021"
+edition     = "2024"
 license     = "MIT"
 description = "功能完整的 A 股数据获取库，完全对标 pytdx"
 repository  = "https://github.com/jackluo2012/rustdx"
@@ -13,12 +13,11 @@ exclude     = [
               ]
 
 [dependencies]
-miniz_oxide = "0.8"
+miniz_oxide = "0.9"
 log = { workspace = true }
 serde = { workspace = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }
-lazy_static = { workspace = true }
 trade_date_a = "2026.0"
 
 [dependencies.encoding_rs]
@@ -50,8 +49,7 @@ members = ["rustdx-cmd", "tests-integration"]
 [workspace.dependencies]
 log = "0.4"
 chrono  = "0.4"
-thiserror = "1"
-lazy_static = "1"
+thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 
 [package.metadata.docs.rs]

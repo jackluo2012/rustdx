@@ -123,11 +123,10 @@ impl Client {
             }
             if let Some(begin) = begin {
                 // 最旧的一页数据已经早于 begin，停止翻页
-                if let Some(oldest) = all.first() {
-                    if DateTime::to_u32(oldest.dt.clone()) < begin {
+                if let Some(oldest) = all.first()
+                    && DateTime::to_u32(oldest.dt.clone()) < begin {
                         break;
                     }
-                }
             }
             start = start.saturating_add(PAGE);
             if start == 0 {

@@ -26,7 +26,8 @@ fn get_xlsx(ex: Exchange) -> Result<()> {
         Exchange::Sse => ("http://query.sse.com.cn/security/stock/downloadStockListFile.do?csrcCode=&stockCode=&areaName=&stockType=1", "../assets/xlsx/sse.xls")
     };
     let buf = &mut Vec::with_capacity(1 << 20);
-    ureq::get(url).call()?.into_reader().read_to_end(buf)?;
+    use std::io::Read;
+    ureq::get(url).call()?.body_mut().as_reader().read_to_end(buf)?;
     std::fs::write(fname, buf)?;
     Ok(())
 }

@@ -18,7 +18,7 @@ pub fn get(page_size: u16, page_number: u16) -> Result<String> {
     let mut last_err = None;
     for attempt in 1..=MAX_RETRIES {
         match ureq::get(&url).call() {
-            Ok(resp) => return Ok(resp.into_string()?),
+            Ok(mut resp) => return Ok(resp.body_mut().read_to_string()?),
             Err(e) => {
                 warn!("东财请求失败（第 {attempt}/{MAX_RETRIES} 次）：{e}");
                 last_err = Some(e);

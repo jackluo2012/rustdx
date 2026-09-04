@@ -7,62 +7,60 @@
 //! 直到某台服务器连接成功。也可用 [`check_alive`] 探测全部服务器后
 //! 指定最快的一台：`Tcp::with_config`。
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::{Duration, Instant};
 
 use crate::tcp::Tcp;
 
-lazy_static::lazy_static! {
-    /// 行情服务器列表（按优先级排序）。
-    pub static ref STOCK_IP: [SocketAddr; 40] = [
+/// 行情服务器列表（按优先级排序）。
+pub static STOCK_IP: [SocketAddr; 40] = [
         // 原列表中实测长期可用的电信主站
-        "115.238.56.198:7709".parse().unwrap(),
-        "180.153.18.170:7709".parse().unwrap(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(115, 238, 56, 198)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(180, 153, 18, 170)), 7709),
         // mootdx HQ_HOSTS（深圳双线主站）
-        "110.41.147.114:7709".parse().unwrap(),
-        "8.129.13.54:7709".parse().unwrap(),
-        "120.24.149.49:7709".parse().unwrap(),
-        "47.113.94.204:7709".parse().unwrap(),
-        "8.129.174.169:7709".parse().unwrap(),
-        "110.41.154.219:7709".parse().unwrap(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(110, 41, 147, 114)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 129, 13, 54)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(120, 24, 149, 49)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(47, 113, 94, 204)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 129, 174, 169)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(110, 41, 154, 219)), 7709),
         // 上海双线主站
-        "124.70.176.52:7709".parse().unwrap(),
-        "47.100.236.28:7709".parse().unwrap(),
-        "101.133.214.242:7709".parse().unwrap(),
-        "47.116.21.80:7709".parse().unwrap(),
-        "47.116.105.28:7709".parse().unwrap(),
-        "124.70.199.56:7709".parse().unwrap(),
-        "106.14.201.131:7709".parse().unwrap(),
-        "106.14.190.242:7709".parse().unwrap(),
-        "121.36.225.169:7709".parse().unwrap(),
-        "123.60.70.228:7709".parse().unwrap(),
-        "123.60.73.44:7709".parse().unwrap(),
-        "124.70.133.119:7709".parse().unwrap(),
-        "124.71.187.72:7709".parse().unwrap(),
-        "124.71.187.122:7709".parse().unwrap(),
-        "123.60.84.66:7709".parse().unwrap(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(124, 70, 176, 52)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(47, 100, 236, 28)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(101, 133, 214, 242)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(47, 116, 21, 80)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(47, 116, 105, 28)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(124, 70, 199, 56)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(106, 14, 201, 131)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(106, 14, 190, 242)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(121, 36, 225, 169)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(123, 60, 70, 228)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(123, 60, 73, 44)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(124, 70, 133, 119)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(124, 71, 187, 72)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(124, 71, 187, 122)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(123, 60, 84, 66)), 7709),
         // 北京双线主站
-        "121.36.54.217:7709".parse().unwrap(),
-        "121.36.81.195:7709".parse().unwrap(),
-        "123.249.15.60:7709".parse().unwrap(),
-        "124.70.75.113:7709".parse().unwrap(),
-        "120.46.186.223:7709".parse().unwrap(),
-        "124.70.22.210:7709".parse().unwrap(),
-        "139.9.133.247:7709".parse().unwrap(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(121, 36, 54, 217)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(121, 36, 81, 195)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(123, 249, 15, 60)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(124, 70, 75, 113)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(120, 46, 186, 223)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(124, 70, 22, 210)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(139, 9, 133, 247)), 7709),
         // 广州双线主站
-        "124.71.85.110:7709".parse().unwrap(),
-        "139.9.51.18:7709".parse().unwrap(),
-        "139.159.239.163:7709".parse().unwrap(),
-        "124.71.9.153:7709".parse().unwrap(),
-        "116.205.163.254:7709".parse().unwrap(),
-        "116.205.171.132:7709".parse().unwrap(),
-        "116.205.183.150:7709".parse().unwrap(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(124, 71, 85, 110)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(139, 9, 51, 18)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(139, 159, 239, 163)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(124, 71, 9, 153)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(116, 205, 163, 254)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(116, 205, 171, 132)), 7709),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(116, 205, 183, 150)), 7709),
         // 其他
-        "119.97.185.59:7709".parse().unwrap(),  // 武汉电信主站
-        "47.107.64.168:7709".parse().unwrap(),  // 深圳双线主站
-        "47.107.228.47:7719".parse().unwrap(),  // 深圳双线主站（7719 端口）
-    ];
-}
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(119, 97, 185, 59)), 7709),  // 武汉电信主站
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(47, 107, 64, 168)), 7709),  // 深圳双线主站
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(47, 107, 228, 47)), 7719),  // 深圳双线主站（7719 端口）
+];
 
 /// 依次探测服务器列表，返回可以建立 TCP 连接的地址（保持列表顺序）。
 ///

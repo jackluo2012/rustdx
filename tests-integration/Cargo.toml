@@ -1,11 +1,11 @@
 [package]
 name = "tests-integration"
 version = "1.0.1"
-edition = "2021"
+edition = "2024"
 publish = false
 
 [dependencies]
-tabled = "0.16"
+tabled = "0.21"
 insta = "1"
 rustdx-complete = { path = "../" }
 rustdx-cmd = { path = "../rustdx-cmd" }
