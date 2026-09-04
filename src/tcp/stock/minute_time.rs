@@ -164,7 +164,7 @@ pub struct MinuteTimeData {
 }
 
 /// [`price`] 的越界安全版本：字节不足时返回 `None`。
-fn price_checked(arr: &[u8], pos: &mut usize) -> Option<i32> {
+pub(crate) fn price_checked(arr: &[u8], pos: &mut usize) -> Option<i32> {
     let mut shl = 6;
     let mut bit = *arr.get(*pos)? as i32;
     let mut res = bit & 0x3f;

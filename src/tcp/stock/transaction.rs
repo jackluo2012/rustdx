@@ -152,7 +152,8 @@ pub struct TransactionData {
     pub price: f64,
     /// 成交量（手）
     pub vol: i32,
-    /// 成交编号
+    /// 成交编号（历史逐笔 [`HistoryTransaction`](crate::tcp::stock::HistoryTransaction)
+    /// 协议中无此字段，恒为 0）
     pub num: i32,
     /// 买卖方向（0=买盘, 1=卖盘, 2=中性盘）
     pub buyorsell: i32,
