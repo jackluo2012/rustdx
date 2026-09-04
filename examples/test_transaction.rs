@@ -18,34 +18,8 @@ fn main() {
             test_transaction(&mut tcp);
         }
         Err(e) => {
-            println!("   ❌ 默认连接失败: {}，尝试其他服务器...", e);
-
-            // 尝试其他服务器IP
-            use rustdx_complete::tcp::ip::STOCK_IP;
-            let mut last_error = e.to_string();
-            let mut connected = false;
-
-            for (i, ip) in STOCK_IP.iter().enumerate().take(5) {
-                println!("\n   尝试服务器 #{}: {}...", i + 1, ip);
-                match Tcp::new_with_ip(ip) {
-                    Ok(mut tcp) => {
-                        println!("   ✅ 连接成功\n");
-                        test_transaction(&mut tcp);
-                        connected = true;
-                        break;
-                    }
-                    Err(e) => {
-                        last_error = format!("{} (服务器#{})", e, i + 1);
-                        println!("   ❌ 失败: {}", e);
-                    }
-                }
-            }
-
-            if !connected {
-                println!("\n   ❌ 所有服务器连接失败");
-                println!("   最后错误: {}\n", last_error);
-                return;
-            }
+            println!("   ❌ 所有服务器连接失败: {e}");
+            return;
         }
     }
 

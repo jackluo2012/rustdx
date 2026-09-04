@@ -85,9 +85,9 @@ impl<'a> Tdx for FinanceInfo<'a> {
     /// - 7字节：market(1) + code(6)
     /// - 之后：32个财务字段
     fn parse(&mut self, v: Vec<u8>) {
-        // 检查最小长度：2(跳过) + 7(market+code) + 32*4(字段) = 137
-        if v.len() < 137 {
-            eprintln!("⚠️  财务信息数据长度不足: {} 字节（需要至少 137 字节）", v.len());
+        // 检查最小长度：2(跳过) + 7(market+code) + 136(1f+2H+2I+30f 字段) = 145
+        if v.len() < 145 {
+            debug_assert!(false, "财务信息数据长度不足: {} 字节（需要至少 145 字节）", v.len());
             self.response = v;
             self.data = Vec::new();
             return;

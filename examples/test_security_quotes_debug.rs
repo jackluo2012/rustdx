@@ -16,22 +16,7 @@ fn main() {
             t
         }
         Err(e) => {
-            println!("   ❌ 连接失败: {}，尝试其他服务器...", e);
-
-            use rustdx_complete::tcp::ip::STOCK_IP;
-            for (i, ip) in STOCK_IP.iter().enumerate().take(5) {
-                println!("\n   尝试服务器 #{}: {}...", i + 1, ip);
-                match Tcp::new_with_ip(ip) {
-                    Ok(mut t) => {
-                        println!("   ✅ 连接成功\n");
-                        test_quotes(&mut t);
-                        return;
-                    }
-                    Err(e) => {
-                        println!("   ❌ 失败: {}", e);
-                    }
-                }
-            }
+            println!("   ❌ 连接失败: {e}");
             return;
         }
     };

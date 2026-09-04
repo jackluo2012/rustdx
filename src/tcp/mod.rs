@@ -21,37 +21,139 @@ pub mod stock;
 /// 用于缓冲读取 TcpStream 的数据。
 pub type BufTcp = BufReader<TcpStream>;
 
+/// 连接配置：超时与指定服务器。
+///
+/// - [`Tcp::new`] 使用默认配置（5 秒超时，按 [`ip::STOCK_IP`] 列表故障转移）；
+/// - [`Tcp::with_config`] 可指定服务器与超时（`ip = None` 时依然按列表故障转移）。
+#[derive(Debug, Clone)]
+pub struct TcpConfig {
+    /// 连接与读写的超时时间。
+    pub timeout: Duration,
+    /// 指定服务器地址。`None` 表示使用 [`ip::STOCK_IP`] 列表自动选择。
+    pub ip: Option<SocketAddr>,
+}
+
+impl Default for TcpConfig {
+    fn default() -> Self {
+        Self {
+            timeout: TIMEOUT,
+            ip: None,
+        }
+    }
+}
+
+impl TcpConfig {
+    /// 使用列表中第 `index` 个服务器（越界时回退到第一个）。
+    pub fn with_index(index: usize, timeout: Duration) -> Self {
+        Self {
+            timeout,
+            ip: Some(ip::STOCK_IP.get(index).copied().unwrap_or(ip::STOCK_IP[0])),
+        }
+    }
+}
+
 /// Tcp 链接的一层封装。
 #[derive(Debug)]
 pub struct Tcp {
     stream: TcpStream,
     buffer: BufTcp,
     recv: [u8; RECV_SIZE],
+    /// 创建本连接所用的配置，[`Tcp::reconnect`] 时使用。
+    config: TcpConfig,
 }
 
 impl Tcp {
-    /// 已发送三个测试包
+    /// 连接到行情服务器并完成握手（已发送三个测试包）。
+    ///
+    /// 按 [`ip::STOCK_IP`] 列表顺序依次尝试（故障转移），直到某台连接成功；
+    /// 全部失败时返回最后一个错误。
+    ///
+    /// 超时默认 5 秒，可用 [`Tcp::with_config`] 自定义。
     pub fn new() -> Result<Self> {
-        let (stream, buffer, recv) = tcpstream()?;
+        Self::with_config(&TcpConfig::default())
+    }
+
+    /// 以指定配置连接服务器并完成握手（已发送三个测试包）。
+    ///
+    /// - `config.ip` 为 `Some(addr)` 时只连接该地址；
+    /// - 为 `None` 时按 [`ip::STOCK_IP`] 列表顺序故障转移——TCP 连接与协议握手
+    ///   都成功才算可用（部分服务器 TCP 可连但不响应行情协议）。
+    pub fn with_config(config: &TcpConfig) -> Result<Self> {
+        match config.ip {
+            Some(addr) => Self::connect_addr(&addr, config),
+            None => {
+                let mut last_err = None;
+                for addr in ip::STOCK_IP.iter() {
+                    match Self::connect_addr(addr, config) {
+                        Ok(tcp) => return Ok(tcp),
+                        Err(e) => last_err = Some((addr, e)),
+                    }
+                }
+                let (addr, err) = last_err.expect("服务器列表不能为空");
+                log::warn!("所有行情服务器连接/握手失败，最后尝试: {addr}");
+                Err(err)
+            }
+        }
+    }
+
+    /// 连接指定地址并完成握手。
+    fn connect_addr(addr: &SocketAddr, config: &TcpConfig) -> Result<Self> {
+        let (stream, buffer, recv) = tcpstream_ip_with_timeout(addr, config.timeout)?;
         let mut tcp = Self {
             stream,
             buffer,
             recv,
+            config: config.clone(),
         };
         send_packs(&mut tcp, false)?;
         Ok(tcp)
     }
 
-    /// 已发送三个测试包
-    pub fn new_with_ip(ip: &SocketAddr) -> Result<Self> {
-        let (stream, buffer, recv) = tcpstream_ip(ip)?;
-        let mut tcp = Self {
-            stream,
-            buffer,
-            recv,
-        };
-        send_packs(&mut tcp, false)?;
-        Ok(tcp)
+    /// 重新建立连接（按创建时的配置），并重发握手包。原连接被丢弃。
+    ///
+    /// ## 示例
+    /// ```ignore
+    /// tcp.reconnect()?; // 断线后重新连接
+    /// ```
+    pub fn reconnect(&mut self) -> Result<()> {
+        *self = Self::with_config(&self.config)?;
+        Ok(())
+    }
+
+    /// 发送心跳包保持连接活跃（对应 mootdx 的 `heartbeat`）。
+    ///
+    /// 通达信服务器会关闭长时间空闲的连接；在空闲场景下定期调用即可。
+    /// 返回心跳响应中的深市证券数量。
+    pub fn heartbeat(&mut self) -> Result<u16> {
+        let mut hb = SecurityCount::new(0);
+        Ok(*hb.recv_parsed(self)?)
+    }
+
+    /// 执行请求，失败时自动重连并重试（对应 mootdx 的 `auto_retry`）。
+    ///
+    /// ## 示例
+    /// ```ignore
+    /// let quotes = tcp.retry(|tcp| quotes.recv_parsed(tcp).copied(), 3)?;
+    /// ```
+    pub fn retry<T>(
+        &mut self,
+        mut f: impl FnMut(&mut Tcp) -> Result<T>,
+        attempts: usize,
+    ) -> Result<T> {
+        debug_assert!(attempts >= 1);
+        let mut last_err = None;
+        for attempt in 0..attempts {
+            match f(self) {
+                Ok(v) => return Ok(v),
+                Err(e) => {
+                    if attempt + 1 < attempts {
+                        self.reconnect()?;
+                    }
+                    last_err = Some(e);
+                }
+            }
+        }
+        Err(last_err.unwrap())
     }
 
     /// 发送并接收字节。需要对接收的字节进行解析（参考 [`Tdx::parse`] 的实现）。
@@ -61,7 +163,12 @@ impl Tcp {
     /// 注意是读取而不是接收的字节数。
     /// 由于每次接收先读取 16 字节，所以返回的元组中，第二个数字应为 16。
     pub fn send_recv(&mut self, send: &[u8]) -> Result<(usize, usize)> {
-        Ok((self.stream.write(send)?, self.buffer.read(&mut self.recv)?))
+        self.stream.write_all(send)?;
+        // 一次性读满 16 字节响应头：单次 read 在 TCP 分段时可能只返回部分字节，
+        // 导致后续从错误偏移解析响应长度。
+        self.buffer.read_exact(&mut self.recv)?;
+        trace!("send: {:?}\nrecv[16B]: {:?}", send, self);
+        Ok((send.len(), RECV_SIZE))
     }
 
     pub fn into_inner(self) -> (TcpStream, BufTcp, [u8; RECV_SIZE]) {
@@ -147,7 +254,7 @@ pub fn send_recv_decompress(tcp: &mut Tcp, send: &[u8], tag: &str) -> Result<Vec
 // 对于 TcpStream ，Write::flush 没有做任何事情，所以无需调用。
 pub fn send_recv(tcp: &mut Tcp, send: &[u8], tag: &str) -> Result<(Vec<u8>, u16, u16)> {
     tcp.send_recv(send)?;
-    trace!("{}\nsend: {:?}\nrecv[16B]: {:?}", tag, send, tcp);
+    trace!("{tag}\nsend: {:?}\nrecv[16B]: {:?}", send, tcp);
 
     let deflate_size = u16_from_le_bytes(&tcp.recv, 12); // 响应信息中的待解压长度
     let mut buf = vec![0; deflate_size as usize];
@@ -162,21 +269,41 @@ pub fn send_recv(tcp: &mut Tcp, send: &[u8], tag: &str) -> Result<(Vec<u8>, u16,
 }
 
 /// 默认的超时值。
-///
-/// 增加到5秒，以适应网络延迟和服务器的响应时间
 pub const TIMEOUT: Duration = Duration::from_secs(5);
 
-/// 快速引入 tcpstream，设置 5 秒超时。
-/// TODO: 固定？随机？取最快的 ip？
+/// 快速引入 tcpstream（按服务器列表故障转移），设置 [`TIMEOUT`] 超时。
 pub fn tcpstream() -> Result<(TcpStream, BufTcp, [u8; RECV_SIZE])> {
-    tcpstream_ip(&ip::STOCK_IP[0])
+    tcpstream_with_timeout(TIMEOUT)
 }
 
-/// 快速引入 tcpstream，设置 5 秒超时。
+/// 按服务器列表顺序尝试建立连接（故障转移），每个尝试使用 `timeout`。
+/// 全部失败时返回最后一个错误。
+pub fn tcpstream_with_timeout(timeout: Duration) -> Result<(TcpStream, BufTcp, [u8; RECV_SIZE])> {
+    let mut last_err = None;
+    for addr in ip::STOCK_IP.iter() {
+        match tcpstream_ip_with_timeout(addr, timeout) {
+            Ok(x) => return Ok(x),
+            Err(e) => last_err = Some((addr, e)),
+        }
+    }
+    let (addr, err) = last_err.expect("服务器列表不能为空");
+    log::warn!("所有行情服务器连接失败，最后尝试: {addr}");
+    Err(err)
+}
+
+/// 快速引入 tcpstream（指定服务器），设置 [`TIMEOUT`] 超时。
 pub fn tcpstream_ip(ip: &SocketAddr) -> Result<(TcpStream, BufTcp, [u8; RECV_SIZE])> {
-    let stream = TcpStream::connect_timeout(ip, TIMEOUT)?;
-    stream.set_read_timeout(Some(TIMEOUT))?;
-    stream.set_write_timeout(Some(TIMEOUT))?;
+    tcpstream_ip_with_timeout(ip, TIMEOUT)
+}
+
+/// 快速引入 tcpstream（指定服务器与超时）。
+pub fn tcpstream_ip_with_timeout(
+    ip: &SocketAddr,
+    timeout: Duration,
+) -> Result<(TcpStream, BufTcp, [u8; RECV_SIZE])> {
+    let stream = TcpStream::connect_timeout(ip, timeout)?;
+    stream.set_read_timeout(Some(timeout))?;
+    stream.set_write_timeout(Some(timeout))?;
     let recv = [0; RECV_SIZE];
     let buffer = BufReader::new(stream.try_clone()?);
     Ok((stream, buffer, recv))

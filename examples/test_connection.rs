@@ -71,7 +71,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         match addr_str.parse::<SocketAddr>() {
             Ok(addr) => {
-                match Tcp::new_with_ip(&addr) {
+                match Tcp::with_config(&rustdx_complete::tcp::TcpConfig {
+                    timeout: std::time::Duration::from_secs(5),
+                    ip: Some(addr),
+                }) {
                     Ok(mut tcp) => {
                         println!("✅ 连接成功！\n");
 
@@ -122,7 +125,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("正在扫描... {}/10", i + 1);
         }
 
-        if Tcp::new_with_ip(addr).is_ok() {
+        if rustdx_complete::tcp::Tcp::with_config(&rustdx_complete::tcp::TcpConfig {
+            timeout: std::time::Duration::from_secs(5),
+            ip: Some(*addr),
+        })
+        .is_ok()
+        {
             working_servers.push(*addr);
         }
     }

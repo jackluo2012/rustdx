@@ -9,8 +9,9 @@ use std::net::SocketAddr;
 fn main() {
     println!("🔍 调试指数行情数据包大小\n");
 
+    use rustdx_complete::tcp::TcpConfig;
     let addr: SocketAddr = "115.238.56.198:7709".parse().unwrap();
-    match Tcp::new_with_ip(&addr) {
+    match Tcp::with_config(&TcpConfig { timeout: std::time::Duration::from_secs(5), ip: Some(addr) }) {
         Ok(mut tcp) => {
             println!("✅ 连接成功\n");
 

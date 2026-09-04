@@ -9,44 +9,17 @@ use rustdx_complete::tcp::stock::SecurityQuotes;
 fn main() {
     println!("🚀 测试指数行情功能\n");
 
-    // 创建TCP连接，尝试多个服务器
+    // Tcp::new() 内置服务器列表故障转移（依次尝试直到连接成功）
     println!("1️⃣  连接到通达信服务器...");
 
-    // 首先尝试默认连接
     match Tcp::new() {
         Ok(mut tcp) => {
             println!("   ✅ 连接成功\n");
             test_index_quotes(&mut tcp);
         }
         Err(e) => {
-            println!("   ❌ 默认连接失败: {}，尝试其他服务器...", e);
-
-            // 尝试其他服务器IP
-            use rustdx_complete::tcp::ip::STOCK_IP;
-            let mut last_error = e.to_string();
-            let mut connected = false;
-
-            for (i, ip) in STOCK_IP.iter().enumerate().take(5) {
-                println!("\n   尝试服务器 #{}: {}...", i + 1, ip);
-                match Tcp::new_with_ip(ip) {
-                    Ok(mut tcp) => {
-                        println!("   ✅ 连接成功\n");
-                        test_index_quotes(&mut tcp);
-                        connected = true;
-                        break;
-                    }
-                    Err(e) => {
-                        last_error = format!("{} (服务器#{})", e, i + 1);
-                        println!("   ❌ 失败: {}", e);
-                    }
-                }
-            }
-
-            if !connected {
-                println!("\n   ❌ 所有服务器连接失败");
-                println!("   最后错误: {}\n", last_error);
-                return;
-            }
+            println!("   ❌ 所有服务器连接失败: {e}");
+            return;
         }
     }
 

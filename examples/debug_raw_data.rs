@@ -66,7 +66,10 @@ fn main() {
 
     for (i, ip) in STOCK_IP.iter().take(5).enumerate() {
         println!("\n   尝试服务器 #{}: {}...", i + 1, ip);
-        match Tcp::new_with_ip(ip) {
+        match Tcp::with_config(&rustdx_complete::tcp::TcpConfig {
+            timeout: std::time::Duration::from_secs(5),
+            ip: Some(*ip),
+        }) {
             Ok(mut tcp2) => {
                 println!("      ✅ 连接成功");
 

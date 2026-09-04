@@ -84,7 +84,7 @@ impl Tdx for SecurityList {
     fn parse(&mut self, v: Vec<u8>) {
         // 检查最小长度：至少需要 2 字节（数量）
         if v.len() < 2 {
-            eprintln!("⚠️  股票列表数据长度不足: {} 字节（需要至少 2 字节）", v.len());
+            debug_assert!(false, "股票列表数据长度不足: {} 字节（需要至少 2 字节）", v.len());
             self.response = v;
             self.data = Vec::new();
             return;
@@ -99,7 +99,7 @@ impl Tdx for SecurityList {
         // 检查数据长度是否足够：2(数量) + num_stocks * 29(每只股票)
         let expected_len = 2 + (num_stocks as usize) * 29;
         if v.len() < expected_len {
-            eprintln!("⚠️  股票列表数据长度不足: {} 字节（预期 {} 字节，包含 {} 只股票）",
+            debug_assert!(false, "股票列表数据长度不足: {} 字节（预期 {} 字节，包含 {} 只股票）",
                 v.len(), expected_len, num_stocks);
             // 只解析能完整解析的股票数量
             let available_stocks = (v.len() - 2) / 29;
