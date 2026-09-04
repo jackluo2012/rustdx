@@ -11,6 +11,30 @@ pub struct Xdxr<'d> {
     pub data: Vec<XdxrData>,
 }
 
+impl<'d> Xdxr<'d> {
+    /// 创建除权除息查询请求。
+    ///
+    /// ## panic
+    /// 当 code 的字节长度不是 6 时，程序会 panic。
+    pub fn new(market: u16, code: &'d str) -> Self {
+        assert_eq!(code.len(), 6, "股票代码必须是6位");
+        let mut send = [0u8; Self::LEN];
+        // pytdx GetXdXrInfo 布局：包头 14 字节 + market(u8)@14 + code(6)@15
+        // （注意：旧实现把 market 误写到包头 12..14 处，任意股票都返回 0 条记录）
+        send[0..14].copy_from_slice(&Self::SEND[0..14]);
+        send[14] = market as u8;
+        send[15..21].copy_from_slice(code.as_bytes());
+        Self {
+            send: send.into(),
+            market,
+            code,
+            response: Vec::new(),
+            count: None,
+            data: Vec::new(),
+        }
+    }
+}
+
 impl<'d> Default for Xdxr<'d> {
     fn default() -> Self {
         Self {

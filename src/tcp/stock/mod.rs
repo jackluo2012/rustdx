@@ -36,6 +36,9 @@ pub use company_info::{
     CompanyInfoCategory, CompanyInfoCategoryItem, CompanyInfoContent,
 };
 
+mod client;
+pub use client::Client;
+
 /// 根据股票代码推断市场代码（对应 mootdx 的 `get_stock_market`）。
 ///
 /// - `6` 开头 → 沪市（`1`），如 600xxx、688xxx
