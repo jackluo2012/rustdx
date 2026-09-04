@@ -154,7 +154,7 @@ pub struct TransactionData {
     pub vol: i32,
     /// 成交编号
     pub num: i32,
-    /// 买卖方向（0=买, 1=卖, 8=其他）
+    /// 买卖方向（0=买盘, 1=卖盘, 2=中性盘）
     pub buyorsell: i32,
 }
 

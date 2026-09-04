@@ -1,4 +1,4 @@
-use crate::tcp::{helper::price, Tdx};
+use crate::tcp::Tdx;
 use crate::bytes_helper::u16_from_le_bytes;
 
 /// 获取股票分时数据。对应于 pytdx 中的 hq.get_minute_time_data、GetMinuteTimeDataCmd。
@@ -82,32 +82,68 @@ impl<'a> Tdx for MinuteTime<'a> {
 
     /// 解析响应的字节。
     ///
-    /// ## 响应格式（基于pytdx源码分析）
+    /// ## 响应格式（基于 pytdx GetMinuteTimeDataCmd.parseResponse）
     /// - 前2字节：数据点数量
     /// - 字节2-3：跳过
-    /// - 之后每个数据点：可变长度编码
+    /// - 之后每个数据点：price_raw / reversed1 / vol 三个变长编码字段
+    ///
+    /// ## ⚠️ 已知问题（2026 起）
+    /// 部分通达信服务器的分时响应格式已发生变化（数据前新增了 market + code 头，
+    /// 数据编码亦与旧格式不符），pytdx 同样无法解析。本方法内置了防御性校验：
+    /// 解析结果异常（点数不齐、价格不合理、字节未耗尽）时返回**空数据**而非垃圾数据。
+    /// 参见 <https://github.com/rainx/pytdx/issues/148>。
     fn parse(&mut self, v: Vec<u8>) {
-        let mut pos = 0;
+        self.data = Vec::new();
+
+        if v.len() < 4 {
+            self.response = v;
+            return;
+        }
 
         // 读取数据点数量
-        let num_points = u16_from_le_bytes(&v, pos);
-        pos += 4; // 跳过前4字节（数量 + 2字节跳过）
-
-        self.data = Vec::with_capacity(num_points as usize);
+        let num_points = u16_from_le_bytes(&v, 0);
+        let mut pos = 4; // 跳过前4字节（数量 + 2字节跳过）
 
         let mut last_price = 0i32;
 
         for _ in 0..num_points {
-            // 解析分时数据（可变长度编码）
-            let price_raw = price(&v, &mut pos);
-            let _reversed1 = price(&v, &mut pos);
-            let vol = price(&v, &mut pos);
+            // 变长编码最多 5 字节，每点 3 个字段；数据不足时立即停止
+            if v.len() - pos < 3 {
+                break;
+            }
+            let Some(price_raw) = price_checked(&v, &mut pos) else {
+                self.response = v;
+                return; // 字节越界：格式不符，返回空数据
+            };
+            let Some(_reversed1) = price_checked(&v, &mut pos) else {
+                self.response = v;
+                return;
+            };
+            let Some(vol) = price_checked(&v, &mut pos) else {
+                self.response = v;
+                return;
+            };
 
             // 累加计算实际价格
             last_price += price_raw;
             let price = last_price as f64 / 100.0;
 
             self.data.push(MinuteTimeData { price, vol });
+        }
+
+        // 防御性校验：
+        // 1. 点数必须完整（协议变化时 varint 边界错位，点数几乎必然不齐）
+        // 2. 响应字节应基本耗尽（允许少量尾部填充）
+        // 3. 首点为开盘价，必须大于 0；所有价格需在 A 股合理范围内
+        let points_complete = self.data.len() == num_points as usize;
+        let bytes_consumed = points_complete && pos + 8 >= v.len();
+        let prices_valid = self
+            .data
+            .iter()
+            .all(|d| (0.01..=100000.0).contains(&d.price));
+
+        if !points_complete || !bytes_consumed || !prices_valid {
+            self.data = Vec::new(); // 协议不匹配，不输出垃圾数据
         }
 
         self.response = v;
@@ -125,6 +161,22 @@ pub struct MinuteTimeData {
     pub price: f64,
     /// 成交量（手）
     pub vol: i32,
+}
+
+/// [`price`] 的越界安全版本：字节不足时返回 `None`。
+fn price_checked(arr: &[u8], pos: &mut usize) -> Option<i32> {
+    let mut shl = 6;
+    let mut bit = *arr.get(*pos)? as i32;
+    let mut res = bit & 0x3f;
+    let sign = (bit & 0x40) == 0;
+    while (bit & 0x80) != 0 {
+        *pos += 1;
+        bit = *arr.get(*pos)? as i32;
+        res += (bit & 0x7f) << shl;
+        shl += 7;
+    }
+    *pos += 1;
+    Some(if sign { res } else { -res })
 }
 
 #[cfg(test)]
@@ -173,5 +225,61 @@ mod tests {
             return;
         }
         println!("⚠️  集成测试需要手动验证（需要实际TCP连接）");
+    }
+
+    /// 旧协议格式的正常解析：2 个点，价格累加还原。
+    #[test]
+    fn parse_legacy_format() {
+        // num=2，跳过2字节；
+        // 点1: price=+900(9.00元), rev1=0, vol=100；点2: price=+50, rev1=0, vol=80
+        let mut v = vec![0x02, 0x00, 0x00, 0x00];
+        v.extend_from_slice(&[0x84, 0x0e, 0x00, 0xa4, 0x01]); // +900, 0, 100
+        v.extend_from_slice(&[0x32, 0x00, 0x90, 0x01]); // +50, 0, 80
+        let mut mt = MinuteTime::new(0, "000001");
+        mt.parse(v);
+        assert_eq!(mt.result().len(), 2);
+        assert_eq!(mt.result()[0].price, 9.0);
+        assert_eq!(mt.result()[0].vol, 100);
+        assert_eq!(mt.result()[1].price, 9.5);
+        assert_eq!(mt.result()[1].vol, 80);
+    }
+
+    /// 2026-09-04 实测的新协议响应（服务器在数据前新增 market+code 头、编码已变），
+    /// 旧解析逻辑产出垃圾数据。防御性校验应返回空数据而非垃圾。
+    #[test]
+    fn parse_new_protocol_returns_empty() {
+        let hex = "1f000000003030303030319d02a81244460847a5f1c409e8128cf21cba0208a4864d84da0c89981000bfaf0700018c1a851b4102ae1b9e3142038f29a31543048d20861144058940ad16cd1700000000";
+        let v: Vec<u8> = (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+            .collect();
+        let mut mt = MinuteTime::new(0, "000001");
+        mt.parse(v);
+        assert!(
+            mt.result().is_empty(),
+            "新协议响应应返回空数据，实际解析出 {} 个点",
+            mt.result().len()
+        );
+    }
+
+    /// 截断的响应：点数声明 10 但数据只有 1 点 → 返回空。
+    #[test]
+    fn parse_truncated_returns_empty() {
+        let mut v = vec![0x0a, 0x00, 0x00, 0x00];
+        v.extend_from_slice(&[0x84, 0x0e, 0x00, 0x64]); // 只有 1 个点
+        let mut mt = MinuteTime::new(0, "000001");
+        mt.parse(v);
+        assert!(mt.result().is_empty());
+    }
+
+    /// 价格越界（>100000 元）→ 校验失败返回空。
+    #[test]
+    fn parse_invalid_price_returns_empty() {
+        // price = 20_000_000（即 200000 元）超出合理范围：varint = 80 b4 89 13
+        let mut v = vec![0x01, 0x00, 0x00, 0x00];
+        v.extend_from_slice(&[0x80, 0xb4, 0x89, 0x13, 0x00, 0xa4, 0x01]);
+        let mut mt = MinuteTime::new(0, "000001");
+        mt.parse(v);
+        assert!(mt.result().is_empty());
     }
 }
