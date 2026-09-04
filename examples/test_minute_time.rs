@@ -62,7 +62,7 @@ fn test_minute_time(tcp: &mut Tcp) {
             println!("   ✅ 获取成功\n");
             println!("   📊 返回数量: {} 个数据点\n", minute.result().len());
 
-            if minute.result().len() > 0 {
+            if !minute.result().is_empty() {
                 println!("   前10个数据点:");
                 for (i, data) in minute.result().iter().take(10).enumerate() {
                     println!("      {:2}. 价格: {:>7.2}  成交量: {}", i + 1, data.price, data.vol);
@@ -102,7 +102,7 @@ fn test_minute_time(tcp: &mut Tcp) {
             println!("   ✅ 获取成功\n");
             println!("   📊 返回数量: {} 个数据点\n", minute.result().len());
 
-            if minute.result().len() > 0 {
+            if !minute.result().is_empty() {
                 println!("   前10个数据点:");
                 for (i, data) in minute.result().iter().take(10).enumerate() {
                     println!("      {:2}. 价格: {:>7.2}  成交量: {}", i + 1, data.price, data.vol);

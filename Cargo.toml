@@ -1,6 +1,6 @@
 [package]
 name        = "rustdx-complete"
-version     = "0.6.6"
+version     = "1.0.1"
 edition     = "2021"
 license     = "MIT"
 description = "功能完整的 A 股数据获取库，完全对标 pytdx"
@@ -19,6 +19,7 @@ serde = { workspace = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }
 lazy_static = { workspace = true }
+trade_date_a = "2026.0"
 
 [dependencies.encoding_rs]
 version  = "0.8"

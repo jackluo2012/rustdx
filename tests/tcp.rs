@@ -12,15 +12,15 @@ fn tcp_security_count() -> Result<()> {
 
     let mut tcp = Tcp::new()?;
 
+    // 证券数量随时间增长（2021 年深市约 1.3 万、2026 年已超 1.4 万），
+    // 因此只做合理范围断言，不对具体数值做快照。
     let mut count = tcp::SecurityCount::new(0); // sz
     let c = *count.recv_parsed(&mut tcp)?;
-    assert_debug_snapshot!("security-count-sz", count);
-    assert_debug_snapshot!(c, @"13471");
+    assert!((5000..=65535).contains(&c), "深市证券数量异常: {c}");
 
     let mut count = tcp::SecurityCount::new(1); // sh
     let c = *count.recv_parsed(&mut tcp)?;
-    assert_debug_snapshot!("security-count-sh", count);
-    assert_debug_snapshot!(c, @"18065");
+    assert!((5000..=65535).contains(&c), "沪市证券数量异常: {c}");
 
     Ok(())
 }

@@ -45,7 +45,7 @@ impl Day {
 
     pub fn from_file_into_vec<P: AsRef<Path>>(code: u32, p: P) -> rustdx_complete::Result<Vec<Day>> {
         Ok(std::fs::read(p)?
-            .chunks_exact(32)
+            .as_chunks::<32>().0.iter()
             .map(|b| Self::from_bytes(code, b))
             .collect())
     }

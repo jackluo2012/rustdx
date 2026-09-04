@@ -25,7 +25,7 @@ fn main() -> Result<()> {
             println!("返回数据统计:");
             println!("  - 总条数: {}", data.len());
             
-            if data.len() > 0 {
+            if !data.is_empty() {
                 println!("\n前5条证券信息：");
                 for (i, item) in data.iter().take(5).enumerate() {
                     println!("  {}. 代码: {}, 名称: {}", i+1, item.code, item.name);

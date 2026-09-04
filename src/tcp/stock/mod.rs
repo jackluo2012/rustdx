@@ -24,3 +24,15 @@ pub use industry_mapping::{get_industry_name, get_industry_info, get_province_na
 
 mod concept_mapping;
 pub use concept_mapping::{ConceptStock, get_concept_stocks, get_concept_names, get_concept_info};
+
+// 数据验证模块
+pub mod validator;
+pub use validator::{
+    ValidationResult,
+    ValidationLevel,
+    DataLocation,
+    Validatable,
+    validate_kline_continuity,
+    validate_finance_consistency,
+    detect_anomalies,
+};

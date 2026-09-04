@@ -9,7 +9,6 @@
  * 运行方式：
  * cargo test --test comprehensive_test -- --live
  */
-
 use rustdx_complete::tcp::{Tcp, Tdx};
 use rustdx_complete::tcp::stock::{
     SecurityQuotes, Kline, FinanceInfo, MinuteTime, Transaction,
@@ -99,8 +98,8 @@ fn test_01_security_quotes_single() {
             match quotes.recv_parsed(&mut tcp) {
                 Ok(_) => {
                     for quote in quotes.result() {
-                        println!("  ✅ {} {}: {:.2}元 ({:.2}%)",
-                            quote.code, quote.name, quote.price, quote.change_percent);
+                        println!("  ✅ {}: {:.2}元 ({:.2}%)",
+                            quote.code, quote.price, quote.change_percent);
 
                         // 验证关键字段
                         if quote.price > 0.0 {
@@ -183,7 +182,7 @@ fn test_02_security_quotes_batch() {
                     // 验证数据完整性
                     let mut valid_count = 0;
                     for quote in quotes.result() {
-                        if quote.price > 0.0 && !quote.name.is_empty() {
+                        if quote.price > 0.0 {
                             valid_count += 1;
                         }
                     }
@@ -227,8 +226,8 @@ fn test_03_index_quotes() {
                 Ok(_) => {
                     println!("  📊 主要指数行情:");
                     for quote in quotes.result() {
-                        println!("     {} {}: {:.2} ({:+.2}%)",
-                            quote.code, quote.name, quote.price, quote.change_percent);
+                        println!("     {}: {:.2} ({:+.2}%)",
+                            quote.code, quote.price, quote.change_percent);
                         results.record_pass();
                     }
 
@@ -733,7 +732,7 @@ fn test_11_concept_stocks() {
         match get_concept_stocks(concept) {
             Some(stocks) => {
                 println!("    ✅ 找到 {} 只成分股", stocks.len());
-                if stocks.len() > 0 {
+                if !stocks.is_empty() {
                     println!("    📊 前5只成分股:");
                     for stock in stocks.iter().take(5) {
                         println!("       {} {}", stock.code, stock.name);

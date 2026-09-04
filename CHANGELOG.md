@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+## v1.0.1 (2026-09-04)
+
+### 🔧 构建与发布基线修复
+
+**恢复模块接线（与 crates.io 1.0.0 发布物对齐）**
+- ✅ `indicators` / `cache` / `error` / `calendar` / `builder` / `pool` 六个模块在 `lib.rs` 中重新声明并导出
+- ✅ `tcp::stock::validator` 数据验证模块重新接线
+- ✅ 新增 `trade_date_a` 依赖（交易日历数据源，升级至 2026.0）
+
+**修复 rustdx-cmd 编译错误**
+- ✅ 修正 `rustdx_complete_cmd` → `rustdx_cmd`、`rustdx` → `rustdx_complete` 的 crate 引用
+- ✅ 修复 `eastmoney::get` 调用签名（补充分页参数）
+- ✅ `rustdx day` / `rustdx east` 子命令恢复可用
+
+**质量基线**
+- ✅ `cargo build --workspace --all-targets` / `cargo test` / `cargo clippy -- -D warnings` 全部通过
+- ✅ 清理全部编译警告与 clippy 告警（约 50 处）
+- ✅ 修复 `TradingCalendar::is_trading_time` 的时区换算偏差（改用 NaiveDateTime 的时间部分）
+- ✅ 三处版本号统一（Cargo.toml / rustdx-cmd / tests-integration）
+
+## v1.0.0 (2026-01-06)
+
+> 已发布至 crates.io（rustdx-complete 1.0.0）。包含数据验证（validator）、技术指标（indicators）、
+> 智能缓存（cache）、交易日历（calendar）、Builder 模式 API、连接池（pool）、分层错误类型（error）。
+> 注：此版本的完整源码此前未完整提交至 git 仓库，v1.0.1 已从 crates.io 发布物恢复对齐。
+
 ## v0.6.6 (2025-12-31)
 
 ### 🎉 重大更新 - 股票行业分类和概念板块查询功能

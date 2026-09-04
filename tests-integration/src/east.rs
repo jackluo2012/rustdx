@@ -8,7 +8,7 @@ fn daily() {
     // 此测试运行的日期
     shot!(now(), @"2023-02-23 15:38:52.329844174 +08:00");
 
-    let (text, elapse_get) = elapse!(get(6000).unwrap());
+    let (text, elapse_get) = elapse!(get(6000, 1).unwrap());
     shot!(elapse_get, @"358"); // 获取数据的耗时
 
     shot!("东财-股票-文本", &text);

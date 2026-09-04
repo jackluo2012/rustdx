@@ -39,7 +39,7 @@ fn main() {
     test_quotes(&mut tcp);
 }
 
-fn test_quotes(mut tcp: &mut Tcp) {
+fn test_quotes(tcp: &mut Tcp) {
     println!("2️⃣  测试获取单只股票行情 (000001 平安银行)...");
     let mut quotes = SecurityQuotes::new(vec![(0, "000001")]);
 
@@ -57,7 +57,7 @@ fn test_quotes(mut tcp: &mut Tcp) {
         println!("         字节 {:2}-{:2}: {}", i, end-1, hex_str);
     }
 
-    match quotes.recv_parsed(&mut tcp) {
+    match quotes.recv_parsed(tcp) {
         Ok(_) => {
             println!("   ✅ 获取成功\n");
             for quote in quotes.result() {

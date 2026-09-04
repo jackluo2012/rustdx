@@ -2,6 +2,8 @@ use eyre::{Result, WrapErr};
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// 获取股票数据
+///
+/// 东财接口偶发网络抖动（Unexpected EOF 等），自动重试 3 次。
 pub fn get(page_size: u16, page_number: u16) -> Result<String> {
     // 如果需要升序，使用 `order=code%2Case` 或者 `order=`
     // ashare => A 股，bshare => B 股，kshare => 科创板，equity => 前三种
@@ -11,10 +13,21 @@ pub fn get(page_size: u16, page_number: u16) -> Result<String> {
         invt=2&fid=f12&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23&fields=f18,f16,f12,f17,f15,f2,f6,f5&_=1631693257534"
     );
     info!("Get: {url}");
-    Ok(ureq::get(&url)
-        .call()
-        .wrap_err_with(|| format!("获取东财股票数据失败，网址为\n`{url:?}`"))?
-        .into_string()?)
+
+    const MAX_RETRIES: usize = 3;
+    let mut last_err = None;
+    for attempt in 1..=MAX_RETRIES {
+        match ureq::get(&url).call() {
+            Ok(resp) => return Ok(resp.into_string()?),
+            Err(e) => {
+                warn!("东财请求失败（第 {attempt}/{MAX_RETRIES} 次）：{e}");
+                last_err = Some(e);
+                std::thread::sleep(std::time::Duration::from_millis(500 * attempt as u64));
+            }
+        }
+    }
+    Err(eyre::eyre!(last_err.unwrap()))
+        .wrap_err_with(|| format!("获取东财股票数据失败（已重试 {MAX_RETRIES} 次），网址为\n`{url:?}`"))
 }
 
 pub fn parse(text: &str) -> Result<EastMarket> {

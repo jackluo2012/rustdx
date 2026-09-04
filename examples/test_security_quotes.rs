@@ -15,9 +15,8 @@ fn run_tests(tcp: &mut Tcp) {
             for quote in quotes.result() {
                 println!("   📊 股票信息:");
                 println!("      代码: {}", quote.code);
-                println!("      名称: {}", quote.name);
                 println!("      当前价: {:.2}", quote.price);
-                println!("      昨收: {:.2}", quote.preclose);
+                println!("      昨收: {:.2}", quote.last_close);
                 println!("      今开: {:.2}", quote.open);
                 println!("      最高: {:.2}", quote.high);
                 println!("      最低: {:.2}", quote.low);
@@ -46,9 +45,8 @@ fn run_tests(tcp: &mut Tcp) {
             println!("   ✅ 获取成功\n");
             println!("   📊 股票行情列表:");
             for quote in quotes.result() {
-                println!("      {} {}: {:.2}元 ({:.2}%)",
+                println!("      {}: {:.2}元 ({:.2}%)",
                     quote.code,
-                    quote.name,
                     quote.price,
                     quote.change_percent
                 );

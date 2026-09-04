@@ -29,7 +29,7 @@
 //! let dates = TradingCalendar::get_trading_days(&date, 10);
 //! ```
 
-use chrono::{NaiveDate, NaiveDateTime, Datelike, Weekday};
+use chrono::{NaiveDate, NaiveDateTime, Datelike, Timelike};
 use trade_date_a;
 
 /// 中国A股交易日历
@@ -97,8 +97,9 @@ impl TradingCalendar {
         // 判断是否在交易时间内（9:30-15:00）
         // 9:30:00 = 9*3600 + 30*60 = 34200 秒
         // 15:00:00 = 15*3600 = 54000 秒
-        let seconds = datetime.timestamp() % 86400; // 一天中的秒数
-        seconds >= 34200 && seconds < 54000
+        // 使用 NaiveDateTime 自带的时间部分（即调用方传入的本地时间），避免时区换算偏差
+        let seconds = datetime.time().num_seconds_from_midnight();
+        (34200..54000).contains(&seconds)
     }
 
     /// 获取指定日期的前一个交易日
@@ -128,7 +129,7 @@ impl TradingCalendar {
             if Self::is_trading_day(&current) {
                 return current;
             }
-            current = current - chrono::Duration::days(1);
+            current -= chrono::Duration::days(1);
         }
 
         // 如果找不到，返回原日期减一天
@@ -162,7 +163,7 @@ impl TradingCalendar {
             if Self::is_trading_day(&current) {
                 return current;
             }
-            current = current + chrono::Duration::days(1);
+            current += chrono::Duration::days(1);
         }
 
         // 如果找不到，返回原日期
@@ -203,7 +204,7 @@ impl TradingCalendar {
             if Self::is_trading_day(&current) {
                 result.push(current);
             }
-            current = current + chrono::Duration::days(1);
+            current += chrono::Duration::days(1);
         }
 
         result
@@ -246,7 +247,7 @@ impl TradingCalendar {
             if current <= NaiveDate::from_ymd_opt(2000, 1, 1).unwrap() {
                 break;
             }
-            current = current - chrono::Duration::days(1);
+            current -= chrono::Duration::days(1);
         }
 
         result.reverse();
@@ -286,7 +287,7 @@ impl TradingCalendar {
             if Self::is_trading_day(&current) {
                 count += 1;
             }
-            current = current + chrono::Duration::days(1);
+            current += chrono::Duration::days(1);
         }
 
         count
@@ -356,6 +357,7 @@ impl TradingCalendar {
     }
 
     /// 将 i64 格式 (YYYYMMDD) 转换为 NaiveDate
+    #[allow(dead_code)]
     fn i64_to_date(date: i64) -> NaiveDate {
         let year = (date / 10000) as i32;
         let month = ((date % 10000) / 100) as u32;

@@ -8,7 +8,6 @@
  * - 直接连接到远程服务器 (115.238.56.198:7709)
  * - 内置多个备用服务器自动切换
  */
-
 use rustdx_complete::tcp::{Tcp, Tdx};
 use rustdx_complete::tcp::stock::SecurityQuotes;
 use std::net::SocketAddr;
@@ -37,8 +36,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("📊 股票行情:");
                     for quote in quotes.result() {
                         println!(
-                            "  {} {}: {:.2}元 ({:+.2}%)",
-                            quote.code, quote.name, quote.price, quote.change_percent
+                            "  {}: {:.2}元 ({:+.2}%)",
+                            quote.code, quote.price, quote.change_percent
                         );
                     }
                     println!("\n✅ 数据获取成功！\n");
@@ -123,7 +122,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("正在扫描... {}/10", i + 1);
         }
 
-        if let Ok(_) = Tcp::new_with_ip(addr) {
+        if Tcp::new_with_ip(addr).is_ok() {
             working_servers.push(*addr);
         }
     }

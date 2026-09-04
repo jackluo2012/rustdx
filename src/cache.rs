@@ -15,6 +15,8 @@
 //! use rustdx_complete::cache::{Cache, MemoryCache};
 //! use rustdx_complete::tcp::stock::Kline;
 //!
+//! # fn fetch_from_server() -> Vec<u8> { vec![] }
+//!
 //! // 创建内存缓存（5分钟TTL）
 //! let cache = Cache::memory(std::time::Duration::from_secs(300));
 //!
@@ -98,7 +100,7 @@ pub trait CacheBackend: Send + Sync {
 /// # 使用示例
 ///
 /// ```rust
-/// use rustdx_complete::cache::MemoryCache;
+/// use rustdx_complete::cache::{CacheBackend, MemoryCache};
 /// use std::time::Duration;
 ///
 /// let cache = MemoryCache::new();
@@ -213,7 +215,7 @@ impl CacheBackend for MemoryCache {
 /// # 使用示例
 ///
 /// ```rust
-/// use rustdx_complete::cache::FileCache;
+/// use rustdx_complete::cache::{CacheBackend, FileCache};
 /// use std::time::Duration;
 ///
 /// let cache = FileCache::new("/tmp/rustdx_cache");
@@ -258,7 +260,7 @@ impl FileCache {
     /// 获取缓存文件路径
     fn cache_path(&self, key: &str) -> PathBuf {
         // 使用安全的文件名（替换特殊字符）
-        let safe_key = key.replace('/', "_").replace('\\', "_");
+        let safe_key = key.replace(['/', '\\'], "_");
         self.dir.join(format!("{}.cache", safe_key))
     }
 
@@ -400,15 +402,16 @@ impl CacheBackend for FileCache {
 /// if let Some(data) = cache.get("key") {
 ///     println!("缓存命中");
 /// } else {
-///     let new_data = fetch_data();
+///     let new_data = vec![1, 2, 3];
 ///     cache.set("key", &new_data);
 /// }
 ///
 /// // 模式二：get_or_fetch（推荐）
-/// let data = cache.get_or_fetch("key", || {
-///     println!("缓存未命中，从服务器获取");
-///     fetch_data()
-/// });
+/// let data: std::result::Result<Vec<u8>, std::convert::Infallible> =
+///     cache.get_or_fetch("key", || {
+///         println!("缓存未命中，从服务器获取");
+///         Ok(vec![1, 2, 3])
+///     });
 /// ```
 pub struct Cache<B: CacheBackend> {
     /// 缓存后端
@@ -509,10 +512,11 @@ impl<B: CacheBackend> Cache<B> {
     /// # use rustdx_complete::cache::{Cache, MemoryCache};
     /// # use std::time::Duration;
     /// # let cache = Cache::new(MemoryCache::new(), Duration::from_secs(300));
-    /// let data = cache.get_or_fetch("my_key", || {
-    ///     // 这个闭包只在缓存未命中时执行
-    ///     vec![1, 2, 3, 4, 5]
-    /// });
+    /// let data: std::result::Result<Vec<u8>, std::convert::Infallible> =
+    ///     cache.get_or_fetch("my_key", || {
+    ///         // 这个闭包只在缓存未命中时执行
+    ///         Ok(vec![1, 2, 3, 4, 5])
+    ///     });
     /// ```
     pub fn get_or_fetch<F, E>(&self, key: &str, fetch: F) -> Result<Vec<u8>, E>
     where

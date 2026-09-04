@@ -133,8 +133,9 @@ impl Tdx for SecurityList {
     fn parse(&mut self, v: Vec<u8>) {
         self.count = u16_from_le_bytes(&v, 0) as usize;
         self.data = v[2..]
-            .chunks_exact(29)
-            .map(SecurityListData::parse)
+            .as_chunks::<29>().0
+            .iter()
+            .map(|c| SecurityListData::parse(c))
             .collect();
         debug_assert_eq!(self.count, self.data.len());
         self.response = v;

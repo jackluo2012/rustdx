@@ -1,21 +1,21 @@
-/// 通达信行业代码映射表
-///
-/// 基于 pytdx 和通达信金融终端的行业分类标准
-/// 行业代码存储在 FinanceInfo.industry 字段中（u16类型）
-///
-/// ## 使用方法
-/// ```ignore
-/// use rustdx::tcp::stock::industry_mapping::get_industry_name;
-///
-/// let industry_code = 1;
-/// let industry_name = get_industry_name(industry_code);
-/// println!("行业: {}", industry_name); // 输出: 银行
-/// ```
-///
-/// ## 注意事项
-/// - 通达信行业代码可能随时间调整，建议定期更新此映射表
-/// - 部分行业代码可能对应多个细分行业（如 37 可能是"食品饮料"或"酒类"）
-/// - 省份代码映射可以参考类似的方式实现
+//! 通达信行业代码映射表
+//!
+//! 基于 pytdx 和通达信金融终端的行业分类标准
+//! 行业代码存储在 FinanceInfo.industry 字段中（u16类型）
+//!
+//! ## 使用方法
+//! ```ignore
+//! use rustdx::tcp::stock::industry_mapping::get_industry_name;
+//!
+//! let industry_code = 1;
+//! let industry_name = get_industry_name(industry_code);
+//! println!("行业: {}", industry_name); // 输出: 银行
+//! ```
+//!
+//! ## 注意事项
+//! - 通达信行业代码可能随时间调整，建议定期更新此映射表
+//! - 部分行业代码可能对应多个细分行业（如 37 可能是"食品饮料"或"酒类"）
+//! - 省份代码映射可以参考类似的方式实现
 
 /// 获取行业代码对应的行业名称
 ///
@@ -27,9 +27,11 @@
 ///
 /// ## 示例
 /// ```
+/// use rustdx_complete::tcp::stock::get_industry_name;
+///
 /// assert_eq!(get_industry_name(1), "银行");
-/// assert_eq!(get_industry_name(11), "房地产");
-/// assert_eq!(get_industry_name(37), "食品饮料");
+/// assert_eq!(get_industry_name(11), "房地产开发");
+/// assert_eq!(get_industry_name(37), "酒类");
 /// assert_eq!(get_industry_name(999), "未知行业");
 /// ```
 pub fn get_industry_name(code: u16) -> &'static str {

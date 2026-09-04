@@ -1,19 +1,19 @@
-/// 东方财富概念板块成分股映射表
-///
-/// 数据来源: AKShare (东方财富概念板块)
-/// 更新时间: 手动更新
-///
-/// 使用方法:
-/// ```ignore
-/// use rustdx_complete::tcp::stock::get_concept_stocks;
-///
-/// // 获取"新能源汽车"概念的成分股
-/// if let Some(stocks) = get_concept_stocks("新能源汽车") {
-///     for stock in stocks {
-///         println!("{}: {}", stock.code, stock.name);
-///     }
-/// }
-/// ```
+//! 东方财富概念板块成分股映射表
+//!
+//! 数据来源: AKShare (东方财富概念板块)
+//! 更新时间: 手动更新
+//!
+//! 使用方法:
+//! ```ignore
+//! use rustdx_complete::tcp::stock::get_concept_stocks;
+//!
+//! // 获取"新能源汽车"概念的成分股
+//! if let Some(stocks) = get_concept_stocks("新能源汽车") {
+//!     for stock in stocks {
+//!         println!("{}: {}", stock.code, stock.name);
+//!     }
+//! }
+//! ```
 
 
 /// 概念股信息

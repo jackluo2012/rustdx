@@ -41,7 +41,7 @@ fn main() {
         let mut finance = FinanceInfo::new(market, code);
         match finance.recv_parsed(&mut tcp) {
             Ok(_) => {
-                if finance.result().len() > 0 {
+                if !finance.result().is_empty() {
                     let info = &finance.result()[0];
                     let industry_name = get_industry_name(info.industry);
                     let province_name = get_province_name(info.province);

@@ -13,13 +13,13 @@
 //!
 //! ```rust,no_run
 //! use rustdx_complete::builder::KlineBuilder;
-//! use rustdx_complete::tcp::Tcp;
+//! use rustdx_complete::tcp::{Tcp, Tdx};
 //!
 //! // 创建 TCP 连接
 //! let mut tcp = Tcp::new().unwrap();
 //!
 //! // 使用 Builder 模式获取K线数据
-//! let kline = KlineBuilder::new()
+//! let mut kline = KlineBuilder::new()
 //!     .code("600000")           // 设置股票代码
 //!     .category(9)              // 日线
 //!     .count(100)               // 获取100条
@@ -31,8 +31,7 @@
 //! let data = kline.result();
 //! ```
 
-use crate::tcp::{stock::Kline, Tdx};
-use std::error::Error;
+use crate::tcp::stock::Kline;
 
 // ============================================================================
 // KlineBuilder
@@ -219,10 +218,8 @@ impl<'a> KlineBuilder<'a> {
             // 自动识别市场：6开头的上海，其他深圳
             if code.starts_with('6') {
                 1  // 上海
-            } else if code.starts_with('0') || code.starts_with('3') {
-                0  // 深圳
             } else {
-                0  // 默认深圳
+                0  // 深圳（0/3 开头及其他默认深圳）
             }
         });
 

@@ -71,7 +71,7 @@ fn main() {
                 println!("      ✅ 连接成功");
 
                 match tcp2.send_recv(quotes.send()) {
-                    Ok((sent, recv_len)) => {
+                    Ok((_sent, recv_len)) => {
                         let recv_data = tcp2.get_ref_recv();
                         if recv_len >= 16 {
                             let deflate_size = u16::from_le_bytes([recv_data[12], recv_data[13]]);

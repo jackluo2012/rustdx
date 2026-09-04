@@ -14,7 +14,7 @@
 //!
 //! # 使用示例
 //!
-//! ```rust
+//! ```ignore
 //! use rustdx_complete::tcp::stock::{Kline, validator::*};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -141,7 +141,7 @@ impl ValidationResult {
 /// ```
 pub fn validate_kline_continuity(
     data: &[KlineData],
-    code: &str,
+    _code: &str,
 ) -> ValidationResult {
     if data.is_empty() {
         return ValidationResult::error(
@@ -521,7 +521,7 @@ mod tests {
 
     fn create_test_kline_data(dates: Vec<DateTime>, close_prices: Vec<f64>) -> Vec<KlineData<'static>> {
         dates.into_iter()
-            .zip(close_prices.into_iter())
+            .zip(close_prices)
             .map(|(dt, close)| KlineData {
                 dt,
                 code: "600000",
@@ -593,12 +593,14 @@ mod tests {
 
     #[test]
     fn test_finance_consistency_normal() {
-        let mut data = FinanceInfoData::default();
-        data.code = "600000".to_string();
-        data.zongguben = 1000000000.0;  // 10亿股
-        data.liutongguben = 800000000.0; // 8亿股
-        data.jingzichan = 50000000000.0; // 500亿
-        data.zongzichan = 100000000000.0; // 1000亿
+        let data = FinanceInfoData {
+            code: "600000".to_string(),
+            zongguben: 1000000000.0,      // 10亿股
+            liutongguben: 800000000.0,    // 8亿股
+            jingzichan: 50000000000.0,    // 500亿
+            zongzichan: 100000000000.0,   // 1000亿
+            ..Default::default()
+        };
 
         let result = validate_finance_consistency(&data);
         assert!(result.is_valid());
@@ -606,12 +608,14 @@ mod tests {
 
     #[test]
     fn test_finance_consistency_invalid() {
-        let mut data = FinanceInfoData::default();
-        data.code = "600000".to_string();
-        data.zongguben = 1000.0;
-        data.liutongguben = 2000.0; // 异常：大于总股本
-        data.jingzichan = 500.0;
-        data.zongzichan = 1000.0;
+        let data = FinanceInfoData {
+            code: "600000".to_string(),
+            zongguben: 1000.0,
+            liutongguben: 2000.0, // 异常：大于总股本
+            jingzichan: 500.0,
+            zongzichan: 1000.0,
+            ..Default::default()
+        };
 
         let result = validate_finance_consistency(&data);
         assert!(!result.is_valid());

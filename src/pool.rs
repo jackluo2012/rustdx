@@ -70,17 +70,6 @@ struct PooledConnection {
 }
 
 impl PooledConnection {
-    /// 创建新的池化连接
-    fn new() -> Result<Self, std::io::Error> {
-        let tcp = Tcp::new()?;
-        Ok(Self {
-            tcp: Some(tcp),
-            created_at: Instant::now(),
-            last_used: Instant::now(),
-            in_use: false,
-        })
-    }
-
     /// 健康检查
     fn is_healthy(&self, config: &PoolConfig) -> bool {
         // 检查是否超过最大生命周期
@@ -225,7 +214,7 @@ impl ConnectionPool {
         // 没有可用连接，创建新连接
         if connections.len() < self.config.max_size {
             let tcp = Tcp::new()?;
-            let mut new_conn = PooledConnection {
+            let new_conn = PooledConnection {
                 tcp: None,  // TCP会被PooledConn持有
                 created_at: Instant::now(),
                 last_used: Instant::now(),
@@ -372,10 +361,11 @@ impl PooledConn {
     /// let pool = ConnectionPool::new(3).unwrap();
     /// let mut conn = pool.get_connection().unwrap();
     ///
-    /// let result = conn.execute(|tcp| {
-    ///     // 使用tcp执行查询
-    ///     Ok(())
+    /// let result = conn.execute(|_tcp| {
+    ///     // 使用 tcp 执行查询，返回任意结果
+    ///     42
     /// });
+    /// assert_eq!(result, 42);
     /// ```
     pub fn execute<F, R>(&mut self, f: F) -> R
     where

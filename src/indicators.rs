@@ -635,9 +635,7 @@ mod tests {
         assert_eq!(result.len(), 5);
         assert!((result[0] - 22.27).abs() < 0.01); // 第一个值是第一个价格
         // 后续值应该是递归计算的 EMA
-        for i in 1..result.len() {
-            assert!(result[i] > 0.0);
-        }
+        assert!(result[1..].iter().all(|&v| v > 0.0));
     }
 
     #[test]
@@ -680,7 +678,7 @@ mod tests {
 
         // RSI 应该在 0-100 范围内
         for value in result.iter().filter_map(|&v| v) {
-            assert!(value >= 0.0 && value <= 100.0);
+            assert!((0.0..=100.0).contains(&value));
         }
     }
 
@@ -747,10 +745,10 @@ mod tests {
 
         // KDJ 应该在 0-100 范围内（J 可能超出）
         for value in result.k.iter().filter_map(|&v| v) {
-            assert!(value >= 0.0 && value <= 100.0);
+            assert!((0.0..=100.0).contains(&value));
         }
         for value in result.d.iter().filter_map(|&v| v) {
-            assert!(value >= 0.0 && value <= 100.0);
+            assert!((0.0..=100.0).contains(&value));
         }
     }
 

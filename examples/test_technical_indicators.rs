@@ -45,12 +45,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("计算 SMA(20) 和 EMA(12)：\n");
 
     // 显示最近5天的数据
-    for (i, ((bar, sma_val), ema_val)) in data.iter()
+    for ((bar, sma_val), ema_val) in data.iter()
         .zip(sma_20.iter())
         .zip(ema_12.iter())
         .rev()
         .take(5)
-        .enumerate()
+        
     {
         println!("  日期: {:04}-{:02}-{:02}", bar.dt.year, bar.dt.month, bar.dt.day);
         println!("    收盘价: {:.2}", bar.close);
@@ -90,13 +90,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 显示最近5天的 MACD 数据
     let mut macd_signals = Vec::new();
-    for (i, (((bar, macd_val), signal_val), hist_val)) in data.iter()
+    for (((bar, macd_val), signal_val), hist_val) in data.iter()
         .zip(macd_result.macd.iter())
         .zip(macd_result.signal.iter())
         .zip(macd_result.histogram.iter())
         .rev()
         .take(5)
-        .enumerate()
+        
     {
         println!("  日期: {:04}-{:02}-{:02}", bar.dt.year, bar.dt.month, bar.dt.day);
 
@@ -137,11 +137,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("计算 RSI(14)：\n");
 
     // 显示最近5天的 RSI 数据
-    for (i, (bar, rsi_val)) in data.iter()
+    for (bar, rsi_val) in data.iter()
         .zip(rsi_14.iter())
         .rev()
         .take(5)
-        .enumerate()
+        
     {
         println!("  日期: {:04}-{:02}-{:02}", bar.dt.year, bar.dt.month, bar.dt.day);
 
@@ -179,13 +179,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("计算布林带(20, 2σ)：\n");
 
     // 显示最近5天的布林带数据
-    for (i, (((bar, upper), middle), lower)) in data.iter()
+    for (((bar, upper), middle), lower) in data.iter()
         .zip(bb_result.upper.iter())
         .zip(bb_result.middle.iter())
         .zip(bb_result.lower.iter())
         .rev()
         .take(5)
-        .enumerate()
+        
     {
         println!("  日期: {:04}-{:02}-{:02}", bar.dt.year, bar.dt.month, bar.dt.day);
         println!("    收盘价: {:.2}", bar.close);
@@ -234,13 +234,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("计算 KDJ(9, 3, 3)：\n");
 
     // 显示最近5天的 KDJ 数据
-    for (i, (((bar, k_val), d_val), j_val)) in data.iter()
+    for (((bar, k_val), d_val), j_val) in data.iter()
         .zip(kdj_result.k.iter())
         .zip(kdj_result.d.iter())
         .zip(kdj_result.j.iter())
         .rev()
         .take(5)
-        .enumerate()
+        
     {
         println!("  日期: {:04}-{:02}-{:02}", bar.dt.year, bar.dt.month, bar.dt.day);
 

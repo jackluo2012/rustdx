@@ -62,7 +62,7 @@ fn test_transaction(tcp: &mut Tcp) {
             println!("   ✅ 获取成功\n");
             println!("   📊 返回数量: {} 笔成交\n", transaction.result().len());
 
-            if transaction.result().len() > 0 {
+            if !transaction.result().is_empty() {
                 println!("   前20笔成交:");
                 println!("      时间      价格     成交量   编号   买卖");
                 println!("      {}", "-".repeat(47));
@@ -105,7 +105,7 @@ fn test_transaction(tcp: &mut Tcp) {
             println!("   ✅ 获取成功\n");
             println!("   📊 返回数量: {} 笔成交\n", transaction.result().len());
 
-            if transaction.result().len() > 0 {
+            if !transaction.result().is_empty() {
                 println!("   前10笔成交:");
                 println!("      时间      价格     成交量   编号   买卖");
                 println!("      {}", "-".repeat(47));
@@ -135,7 +135,7 @@ fn test_transaction(tcp: &mut Tcp) {
             println!("   ✅ 获取成功\n");
             println!("   📊 返回数量: {} 笔成交\n", transaction.result().len());
 
-            if transaction.result().len() > 0 {
+            if !transaction.result().is_empty() {
                 println!("   前20笔成交:");
                 println!("      时间      价格     成交量   编号   买卖");
                 println!("      {}", "-".repeat(47));

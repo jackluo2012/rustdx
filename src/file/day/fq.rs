@@ -24,7 +24,8 @@ impl Day {
     pub fn new(code: u32, p: impl AsRef<Path>, gbbqs: Option<&[Gbbq]>) -> Result<Vec<Self>> {
         let raw = std::fs::read(p)?;
         let days = raw
-            .chunks_exact(32)
+            .as_chunks::<32>().0
+            .iter()
             .map(|b| super::Day::from_bytes(code, b));
         let fq = gbbqs
             .map(|g| Fq::new(days.clone(), g))
@@ -57,7 +58,8 @@ impl Day {
     ) -> Result<Vec<Self>> {
         let raw = std::fs::read(p)?;
         let days = raw
-            .chunks_exact(32)
+            .as_chunks::<32>().0
+            .iter()
             .map(|b| super::Day::from_bytes(code, b));
         let (preclose, factor) = f.map(|f| (f.preclose, f.factor)).unwrap_or((
             days.clone()

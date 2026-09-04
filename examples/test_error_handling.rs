@@ -253,9 +253,9 @@ fn handle_multiple_errors() {
 
         // 使用模式匹配处理不同类型的错误
         match err {
-            Error::Tcp(tcp_err) => println!("   → 需要检查网络连接"),
-            Error::Validation(val_err) => println!("   → 需要检查数据源"),
-            Error::Indicator(ind_err) => println!("   → 需要调整指标参数"),
+            Error::Tcp(_tcp_err) => println!("   → 需要检查网络连接"),
+            Error::Validation(_val_err) => println!("   → 需要检查数据源"),
+            Error::Indicator(_ind_err) => println!("   → 需要调整指标参数"),
             Error::Custom(msg) => println!("   → 自定义错误: {}", msg),
             _ => println!("   → 其他类型错误"),
         }

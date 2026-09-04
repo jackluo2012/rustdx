@@ -4,7 +4,7 @@ use rustdx_complete::file::{
     day::fq::Day,
     gbbq::{Factor, Gbbq},
 };
-use rustdx_complete_cmd::fetch_code::StockList;
+use rustdx_cmd::fetch_code::StockList;
 use std::{
     fs::{self, File},
     io::{self, Write},
@@ -34,7 +34,7 @@ pub fn run_csv(cmd: &DayCmd) -> Result<()> {
             .filter_map(|((_, code), src)| {
                 count += 1;
                 debug!("#{code:06}# {src:?}");
-                rustdx::file::day::Day::from_file_into_vec(code, src).ok()
+                rustdx_complete::file::day::Day::from_file_into_vec(code, src).ok()
             })
             .flatten()
             .try_for_each(|t| wtr.serialize(t))?;
@@ -228,6 +228,15 @@ pub fn insert_clickhouse(output: &impl AsRef<Path>, table: &str, keep: bool) -> 
 /// 需要日线 clickhouse csv 文件
 #[test]
 fn test_insert_clickhouse() -> Result<()> {
+    // 本地未安装 clickhouse-client 时跳过（该测试依赖本机 ClickHouse 服务）
+    if std::process::Command::new("clickhouse-client")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("⚠️  跳过：未安装 clickhouse-client");
+        return Ok(());
+    }
     setup_clickhouse(true, "rustdx.tmp")?;
     insert_clickhouse(&"clickhouse", "rustdx.tmp", true)
 }

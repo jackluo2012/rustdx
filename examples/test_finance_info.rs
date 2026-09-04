@@ -61,7 +61,7 @@ fn test_finance_info(tcp: &mut Tcp) {
         Ok(_) => {
             println!("   ✅ 获取成功\n");
 
-            if finance.result().len() > 0 {
+            if !finance.result().is_empty() {
                 let info = &finance.result()[0];
                 println!("   📊 基本信息:");
                 println!("      股票代码: {}", info.code);
@@ -102,7 +102,7 @@ fn test_finance_info(tcp: &mut Tcp) {
         Ok(_) => {
             println!("   ✅ 获取成功\n");
 
-            if finance.result().len() > 0 {
+            if !finance.result().is_empty() {
                 let info = &finance.result()[0];
                 println!("   📊 基本信息:");
                 println!("      股票代码: {}", info.code);

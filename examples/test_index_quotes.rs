@@ -62,12 +62,12 @@ fn test_index_quotes(tcp: &mut Tcp) {
 
     match quotes.recv_parsed(tcp) {
         Ok(_) => {
-            if quotes.result().len() > 0 {
+            if !quotes.result().is_empty() {
                 let quote = &quotes.result()[0];
                 println!("   📊 上证指数行情:");
                 println!("      代码: {}", quote.code);
                 println!("      当前价: {:.2}", quote.price);
-                println!("      昨收: {:.2}", quote.preclose);
+                println!("      昨收: {:.2}", quote.last_close);
                 println!("      今开: {:.2}", quote.open);
                 println!("      最高: {:.2}", quote.high);
                 println!("      最低: {:.2}", quote.low);
@@ -88,12 +88,12 @@ fn test_index_quotes(tcp: &mut Tcp) {
 
     match quotes.recv_parsed(tcp) {
         Ok(_) => {
-            if quotes.result().len() > 0 {
+            if !quotes.result().is_empty() {
                 let quote = &quotes.result()[0];
                 println!("   📊 深证成指行情:");
                 println!("      代码: {}", quote.code);
                 println!("      当前价: {:.2}", quote.price);
-                println!("      昨收: {:.2}", quote.preclose);
+                println!("      昨收: {:.2}", quote.last_close);
                 println!("      今开: {:.2}", quote.open);
                 println!("      最高: {:.2}", quote.high);
                 println!("      最低: {:.2}", quote.low);

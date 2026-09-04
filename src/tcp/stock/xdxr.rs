@@ -52,14 +52,15 @@ impl<'a> Tdx for Xdxr<'a> {
             self.data.resize_with(count, XdxrData::default);
             self.data
                 .iter_mut()
-                .zip(v[11..].chunks_exact(29).map(XdxrData::parse))
+                .zip(v[11..].as_chunks::<29>().0.iter().map(|c| XdxrData::parse(c)))
                 .map(|(d, x)| *d = x)
                 .last();
         } else {
             self.data = Vec::with_capacity(count);
             v[11..]
-                .chunks_exact(29)
-                .map(XdxrData::parse)
+                .as_chunks::<29>().0
+                .iter()
+                .map(|c| XdxrData::parse(c))
                 .map(|x| self.data.push(x))
                 .last();
         };

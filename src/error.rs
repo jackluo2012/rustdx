@@ -12,11 +12,12 @@
 //! # 使用示例
 //!
 //! ```rust
-//! use rustdx_complete::error::{TcpError, Result};
+//! use rustdx_complete::{Error, Result};
 //!
-//! fn connect_to_server() -> Result<()> {
-//!     let tcp = Tcp::new().map_err(TcpError::ConnectionFailed)?;
-//!     Ok(())
+//! // io::Error 通过 From 自动转换为 Error::Io
+//! fn connect_to_server() -> Result<rustdx_complete::tcp::Tcp> {
+//!     let tcp = rustdx_complete::tcp::Tcp::new()?; // io::Error 自动转换
+//!     Ok(tcp)
 //! }
 //! ```
 
@@ -317,7 +318,7 @@ where
     }
 
     fn map_tcp(self) -> Result<T> {
-        self.map_err(|e| TcpError::Io(io::Error::new(io::ErrorKind::Other, e)).into())
+        self.map_err(|e| TcpError::Io(io::Error::other(e)).into())
     }
 
     fn map_validation(self) -> Result<T> {

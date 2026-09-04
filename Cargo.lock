@@ -873,7 +873,7 @@ checksum = "a157657054ffe556d8858504af8a672a054a6e0bd9e8ee531059100c0fa11bb2"
 
 [[package]]
 name = "rustdx-cmd"
-version = "0.6.4"
+version = "1.0.1"
 dependencies = [
  "argh",
  "calamine",
@@ -892,7 +892,7 @@ dependencies = [
 
 [[package]]
 name = "rustdx-complete"
-version = "0.6.6"
+version = "1.0.1"
 dependencies = [
  "chrono",
  "csv",
@@ -903,6 +903,7 @@ dependencies = [
  "miniz_oxide",
  "serde",
  "thiserror",
+ "trade_date_a",
 ]
 
 [[package]]
@@ -1073,7 +1074,7 @@ dependencies = [
 
 [[package]]
 name = "tests-integration"
-version = "0.1.0"
+version = "1.0.1"
 dependencies = [
  "chrono",
  "insta",
@@ -1127,6 +1128,15 @@ dependencies = [
  "indexmap",
  "toml_datetime",
  "winnow",
+]
+
+[[package]]
+name = "trade_date_a"
+version = "2026.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68efdc1b76d477a5fac1ec831bc5528a99bde79643119ff159e6d2003e5f52b2"
+dependencies = [
+ "chrono",
 ]
 
 [[package]]

@@ -83,8 +83,7 @@ fn test_security_quotes() -> Result<(), Box<dyn std::error::Error>> {
     quotes.recv_parsed(&mut tcp)?;
 
     for quote in quotes.result() {
-        // ⚠️ 问题 1: quote.name 字段为空！
-        println!("{}: '{}' - 当前价: {}", quote.code, quote.name, quote.price);
+        println!("{}: 当前价: {}", quote.code, quote.price);
     }
 
     Ok(())

@@ -25,7 +25,7 @@ fn main() {
 
             match list.recv_parsed(&mut tcp) {
                 Ok(_) => {
-                    if list.result().len() > 0 {
+                    if !list.result().is_empty() {
                         println!("   ✅ 获取成功\n");
 
                         println!("📊 前 5 只股票（验证中文编码）:");
@@ -37,7 +37,7 @@ fn main() {
                         // 验证中文显示
                         let first_stock = &list.result()[0];
                         if !first_stock.name.is_empty() {
-                            let has_chinese = first_stock.name.chars().any(|c| c >= '\u{4E00}' && c <= '\u{9FFF}');
+                            let has_chinese = first_stock.name.chars().any(|c| ('\u{4E00}'..='\u{9FFF}').contains(&c));
                             if has_chinese {
                                 println!("✅ 中文编码: 正常");
                                 println!("✅ 所有测试通过！\n");

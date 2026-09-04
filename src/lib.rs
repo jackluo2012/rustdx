@@ -6,16 +6,23 @@ pub mod file;
 
 pub mod tcp;
 
-use thiserror::Error;
+pub mod indicators;
 
-#[derive(Error, Debug)]
-pub enum Error {
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-    #[error("invalid value (expected {expected:?}, found {found:?})")]
-    Invalid { expected: String, found: String },
-    #[error("{0}")]
-    Custom(&'static str),
-}
+pub mod cache;
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub mod error;
+
+pub mod calendar;
+
+pub mod builder;
+
+pub mod pool;
+
+// 重新导出常用错误类型
+pub use error::{Error, Result, TcpError, ValidationError, CacheError, IndicatorError};
+
+// 重新导出Builder
+pub use builder::{KlineBuilder};
+
+// 重新导出连接池
+pub use pool::{ConnectionPool, PoolConfig, PoolStats};

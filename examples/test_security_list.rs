@@ -86,7 +86,7 @@ fn test_list(tcp: &mut Tcp) {
             println!("   ✅ 获取成功\n");
             println!("   📊 返回数量: {} 只股票\n", list.result().len());
 
-            if list.result().len() > 0 {
+            if !list.result().is_empty() {
                 println!("   前10只股票:");
                 for (i, stock) in list.result().iter().take(10).enumerate() {
                     println!("      {:2}. {} {} - 成交量单位:{}",
@@ -112,7 +112,7 @@ fn test_list(tcp: &mut Tcp) {
             println!("   ✅ 获取成功\n");
             println!("   📊 返回数量: {} 只股票\n", list.result().len());
 
-            if list.result().len() > 0 {
+            if !list.result().is_empty() {
                 println!("   前10只股票:");
                 for (i, stock) in list.result().iter().take(10).enumerate() {
                     println!("      {:2}. {} {} - 成交量单位:{}",

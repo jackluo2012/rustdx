@@ -1,12 +1,12 @@
 # rustdx
 
-[<img alt="github" src="https://img.shields.io/github/license/zjp-CN/rustdx?color=blue" height="20">](https://github.com/zjp-CN/rustdx)
-[<img alt="github" src="https://img.shields.io/github/issues/zjp-CN/rustdx?color=db2043" height="20">](https://github.com/zjp-CN/rustdx/issues)
+[<img alt="github" src="https://img.shields.io/github/license/jackluo2012/rustdx?color=blue" height="20">](https://github.com/jackluo2012/rustdx)
+[<img alt="github" src="https://img.shields.io/github/issues/jackluo2012/rustdx?color=db2043" height="20">](https://github.com/jackluo2012/rustdx/issues)
 [<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-complete?style=flat&color=fc8d62&logo=rust&label=rustdx-complete" height="20">](https://crates.io/crates/rustdx-complete)
-[<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-complete/0.6.6?style=flat&color=green&logo=rust&logoColor=white&label=v0.6.6" height="20">](https://crates.io/crates/rustdx-complete)
+[<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-complete/1.0.1?style=flat&color=green&logo=rust&logoColor=white&label=v1.0.1" height="20">](https://crates.io/crates/rustdx-complete)
 [<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-rustdx-66c2a5?style=flat&labelColor=555555&logoColor=white&logo=data:image/svg+xml;base64,PHN2ZyByb2xlPSJpbWciIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDUxMiA1MTIiPjxwYXRoIGZpbGw9IiNmNWY1ZjUiIGQ9Ik00ODguNiAyNTAuMkwzOTIgMjE0VjEwNS41YzAtMTUtOS4zLTI4LjQtMjMuNC0zMy43bC0xMDAtMzcuNWMtOC4xLTMuMS0xNy4xLTMuMS0yNS4zIDBsLTEwMCAzNy41Yy0xNC4xIDUuMy0yMy40IDE4LjctMjMuNCAzMy43VjIxNGwtOTYuNiAzNi4yQzkuMyAyNTUuNSAwIDI2OC45IDAgMjgzLjlWMzk0YzAgMTMuNiA3LjcgMjYuMSAxOS45IDMyLjJsMTAwIDUwYzEwLjEgNS4xIDIyLjEgNS4xIDMyLjIgMGwxMDMuOS01MiAxMDMuOSA1MmMxMC4xIDUuMSAyMi4xIDUuMSAzMi4yIDBsMTAwLTUwYzEyLjItNi4xIDE5LjktMTguNiAxOS45LTMyLjJWMjgzLjljMC0xNS05LjMtMjguNC0yMy40LTMzLjd6TTM1OCAyMTQuOGwtODUgMzEuOXYtNjguMmw4NS0zN3Y3My4zek0xNTQgMTA0LjFsMTAyLTM4LjIgMTAyIDM4LjJ2LjZsLTEwMiA0MS40LTEwMi00MS40di0uNnptODQgMjkxLjFsLTg1IDQyLjV2LTc5LjFsODUtMzguOHY3NS40em0wLTExMmwtMTAyIDQxLjQtMTAyLTQxLjR2LS42bDEwMi0zOC4yIDEwMiAzOC4ydi42em0yNDAgMTEybC04NSA0Mi41di03OS4xbDg1LTM4Ljh2NzUuNHptMC0xMTJsLTEwMiA0MS40LTEwMi00MS40di0uNmwxMDItMzguMiAxMDIgMzguMnYuNnoiPjwvcGF0aD48L3N2Zz4K" height="20">](https://docs.rs/rustdx)
 [<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-cmd?style=flat&color=fc8d62&logo=rust&label=rustdx-cmd" height="20">](https://crates.io/crates/rustdx-cmd)
-[<img alt="build status" src="https://github.com/zjp-CN/rustdx/workflows/Release%20CI/badge.svg" height="20">](https://github.com/zjp-CN/rustdx/actions)
+[<img alt="build status" src="https://github.com/jackluo2012/rustdx/workflows/Release%20CI/badge.svg" height="20">](https://github.com/jackluo2012/rustdx/actions)
 
 [![](https://img.shields.io/crates/d/rustdx.svg?label=downloads+rustdx&style=social)](https://crates.io/crates/rustdx)
 [![](https://img.shields.io/crates/dv/rustdx.svg?label=downloads@latest+rustdx&style=social)](https://crates.io/crates/rustdx)
@@ -17,7 +17,13 @@
 1. 一个 Rust 通用库 [rustdx-complete](https://crates.io/crates/rustdx-complete)；
 2. 一个命令行工具 [rustdx-cmd](https://crates.io/crates/rustdx-cmd)。
 
-## 📝 最新更新 (v0.6.6 - 2025-12-31)
+## 📝 最新更新 (v1.0.1 - 2026-09-04)
+
+> **构建与质量修复版**：恢复 indicators/cache/calendar/builder/pool/validator 模块接线，
+> 修复 rustdx-cmd 编译错误，统一版本号。详细变更见 [CHANGELOG](https://github.com/jackluo2012/rustdx/blob/main/CHANGELOG.md)。
+> ⚠️ 实时行情（SecurityQuotes）部分字段解析正在修复中（见仓库 issue），使用前请验证数据正确性。
+
+### 历史：v0.6.6 (2025-12-31)
 
 > **重大功能更新**: 新增股票行业分类和概念板块查询功能，支持通达信和东方财富双数据源 ✅
 
@@ -122,7 +128,7 @@ pub struct QuoteData {
 ```bash
 # Cargo.toml
 [dependencies]
-rustdx-complete = "0.6.6"
+rustdx-complete = "1.0.1"
 ```
 
 ---
@@ -152,7 +158,7 @@ rustdx-complete = "0.6.6"
 ```bash
 # Cargo.toml
 [dependencies]
-rustdx-complete = "0.6.6"
+rustdx-complete = "1.0.1"
 ```
 
 或使用 cargo add：
@@ -182,7 +188,7 @@ rustdx 是一个功能完整的 A 股数据获取库，完全对标 pytdx 的核
 
 ```toml
 [dependencies]
-rustdx-complete = "0.6.6"
+rustdx-complete = "1.0.1"
 ```
 
 ### 使用示例
@@ -342,7 +348,7 @@ cd my_stock_app
 
 ```toml
 [dependencies]
-rustdx-complete = "0.6.6"
+rustdx-complete = "1.0.1"
 ```
 
 或使用 cargo add：
@@ -417,7 +423,7 @@ quotes.recv_parsed(&mut tcp)?;
 for quote in quotes.result() {
     println!("股票代码: {}", quote.code);
     println!("当前价: {:.2}", quote.price);
-    println!("昨收: {:.2}", quote.preclose);
+    println!("昨收: {:.2}", quote.last_close);
     println!("今开: {:.2}", quote.open);
     println!("最高: {:.2}", quote.high);
     println!("最低: {:.2}", quote.low);
@@ -794,7 +800,7 @@ cargo run --example test_transaction
 
 使用以下一种方式即可：
 
-1. 下载 [已编译的 release 版本](https://github.com/zjp-CN/rustdx/releases/latest)
+1. 下载 [已编译的 release 版本](https://github.com/jackluo2012/rustdx/releases/latest)
 
 2. cargo install：
 ```console
@@ -803,7 +809,7 @@ cargo install rustdx-cmd
 
 3. cargo build：
 ```console
-$ git clone https://github.com/zjp-CN/rustdx.git
+$ git clone https://github.com/jackluo2012/rustdx.git
 $ cd rustdx
 $ cargo build -p rustdx-cmd --release # 编译（二进制在 target/release 下）
 $ cargo install --path rustdx-cmd     # 安装（二进制在全局 .cargo/bin 下）
@@ -832,7 +838,7 @@ p.s. 请勿使用本项目 `assets/` 中的 gbbq 文件，因为那对你来说�
 > TRUNCATE TABLE rustdx.factor;
 > ```
 >
-> 如果发现历史数据不正确，请提交 [issue](https://github.com/zjp-CN/rustdx/issues)。
+> 如果发现历史数据不正确，请提交 [issue](https://github.com/jackluo2012/rustdx/issues)。
 
 ```console
 # 解析所有最新股票的历史日线数据，且计算复权数据
@@ -872,7 +878,7 @@ $ rustdx east -p clickhouse -o clickhouse -t rustdx.factor
 
 ## CHANGELOG
 
-[更新记录](https://github.com/zjp-CN/rustdx/blob/main/CHANGELOG.md)
+[更新记录](https://github.com/jackluo2012/rustdx/blob/main/CHANGELOG.md)
 
 ## 使用示例
 

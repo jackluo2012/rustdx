@@ -37,17 +37,13 @@ fn main() {
 
     for (market, code, name) in test_stocks {
         let mut finance = FinanceInfo::new(market, code);
-        match finance.recv_parsed(&mut tcp) {
-            Ok(_) => {
-                if finance.result().len() > 0 {
-                    let info = &finance.result()[0];
-                    let industry = get_industry_name(info.industry);
-                    let province = get_province_name(info.province);
-                    println!("   {:<12} {:<10} {:<12} {:<10}", code, name, industry, province);
-                }
+        if finance.recv_parsed(&mut tcp).is_ok()
+            && !finance.result().is_empty() {
+                let info = &finance.result()[0];
+                let industry = get_industry_name(info.industry);
+                let province = get_province_name(info.province);
+                println!("   {:<12} {:<10} {:<12} {:<10}", code, name, industry, province);
             }
-            Err(_) => {}
-        }
     }
 
     // 2. 查询热门概念的成分股

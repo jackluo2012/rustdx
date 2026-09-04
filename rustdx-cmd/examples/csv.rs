@@ -1,4 +1,4 @@
-use rustdx::file::gbbq::Factor;
+use rustdx_complete::file::gbbq::Factor;
 use std::error::Error;
 use std::process;
 
