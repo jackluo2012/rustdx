@@ -5,7 +5,7 @@ mod day;
 mod east;
 
 pub use self::{
-    day::{auto_prefix, DayCmd},
+    day::{DayCmd, auto_prefix},
     east::EastCmd,
 };
 

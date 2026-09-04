@@ -7,7 +7,7 @@
 //! cargo run --example test_error_handling
 //! ```
 
-use rustdx_complete::error::{Error, Result, TcpError, ValidationError, IndicatorError};
+use rustdx_complete::error::{Error, IndicatorError, Result, TcpError, ValidationError};
 use std::time::Duration;
 
 // ========================================
@@ -245,7 +245,11 @@ fn handle_multiple_errors() {
         Error::Custom("自定义错误"),
         Error::Tcp(TcpError::timeout(Duration::from_secs(5))),
         Error::Validation(ValidationError::insufficient_data(10, 5)),
-        Error::Indicator(IndicatorError::invalid_parameter("RSI".to_string(), "period".to_string(), "0".to_string())),
+        Error::Indicator(IndicatorError::invalid_parameter(
+            "RSI".to_string(),
+            "period".to_string(),
+            "0".to_string(),
+        )),
     ];
 
     for (i, err) in errors.iter().enumerate() {

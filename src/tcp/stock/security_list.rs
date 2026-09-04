@@ -1,5 +1,5 @@
-use crate::tcp::{helper, Tdx};
 use crate::bytes_helper::{u16_from_le_bytes, u32_from_le_bytes};
+use crate::tcp::{Tdx, helper};
 
 /// 获取股票列表。对应于 pytdx 中的 hq.get_security_lists、GetSecurityListCmd。
 ///
@@ -84,7 +84,11 @@ impl Tdx for SecurityList {
     fn parse(&mut self, v: Vec<u8>) {
         // 检查最小长度：至少需要 2 字节（数量）
         if v.len() < 2 {
-            debug_assert!(false, "股票列表数据长度不足: {} 字节（需要至少 2 字节）", v.len());
+            debug_assert!(
+                false,
+                "股票列表数据长度不足: {} 字节（需要至少 2 字节）",
+                v.len()
+            );
             self.response = v;
             self.data = Vec::new();
             return;
@@ -99,8 +103,13 @@ impl Tdx for SecurityList {
         // 检查数据长度是否足够：2(数量) + num_stocks * 29(每只股票)
         let expected_len = 2 + (num_stocks as usize) * 29;
         if v.len() < expected_len {
-            debug_assert!(false, "股票列表数据长度不足: {} 字节（预期 {} 字节，包含 {} 只股票）",
-                v.len(), expected_len, num_stocks);
+            debug_assert!(
+                false,
+                "股票列表数据长度不足: {} 字节（预期 {} 字节，包含 {} 只股票）",
+                v.len(),
+                expected_len,
+                num_stocks
+            );
             // 只解析能完整解析的股票数量
             let available_stocks = (v.len() - 2) / 29;
             self.data = Vec::with_capacity(available_stocks);
@@ -212,7 +221,12 @@ mod tests {
     fn test_security_list_send_bytes() {
         let list = SecurityList::new(0, 0);
         // 验证包头
-        assert_eq!(&list.send[0..12], &[0x0c, 0x01, 0x18, 0x64, 0x01, 0x01, 0x06, 0x00, 0x06, 0x00, 0x50, 0x04]);
+        assert_eq!(
+            &list.send[0..12],
+            &[
+                0x0c, 0x01, 0x18, 0x64, 0x01, 0x01, 0x06, 0x00, 0x06, 0x00, 0x50, 0x04
+            ]
+        );
         // 验证market
         assert_eq!(&list.send[12..14], &[0x00, 0x00]);
         // 验证start

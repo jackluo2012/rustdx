@@ -1,4 +1,4 @@
-use super::{u16_from_le_bytes, Result, Tdx};
+use super::{Result, Tdx, u16_from_le_bytes};
 
 /// 心跳包。用于保持 Tcp 连接。
 pub type Heartbeat = SecurityCount;
@@ -133,7 +133,8 @@ impl Tdx for SecurityList {
     fn parse(&mut self, v: Vec<u8>) {
         self.count = u16_from_le_bytes(&v, 0) as usize;
         self.data = v[2..]
-            .as_chunks::<29>().0
+            .as_chunks::<29>()
+            .0
             .iter()
             .map(|c| SecurityListData::parse(c))
             .collect();

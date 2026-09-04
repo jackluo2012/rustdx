@@ -140,10 +140,7 @@ impl TcpError {
 pub enum ValidationError {
     /// K线数据不连续
     #[error("K线数据不连续 (代码: {code}, 缺失日期: {missing:?})")]
-    KlineDiscontinuity {
-        code: String,
-        missing: Vec<String>,
-    },
+    KlineDiscontinuity { code: String, missing: Vec<String> },
 
     /// K线数据异常
     #[error("K线数据异常 (代码: {code}, 日期: {date}, 类型: {anomaly_type})")]

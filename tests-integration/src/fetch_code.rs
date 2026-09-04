@@ -2,7 +2,7 @@
 #[ignore = "联网更新数据"]
 fn offical_stocks() {
     use crate::{now, shot, snap, to_table};
-    use rustdx_cmd::fetch_code::{offical_stocks, StockList};
+    use rustdx_cmd::fetch_code::{StockList, offical_stocks};
 
     shot!(now(), @"2023-02-23 16:28:04.861102493 +08:00");
 

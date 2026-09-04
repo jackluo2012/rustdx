@@ -124,9 +124,10 @@ impl Client {
             if let Some(begin) = begin {
                 // 最旧的一页数据已经早于 begin，停止翻页
                 if let Some(oldest) = all.first()
-                    && DateTime::to_u32(oldest.dt.clone()) < begin {
-                        break;
-                    }
+                    && DateTime::to_u32(oldest.dt.clone()) < begin
+                {
+                    break;
+                }
             }
             start = start.saturating_add(PAGE);
             if start == 0 {
@@ -195,11 +196,7 @@ impl Client {
     }
 
     /// 除权除息信息（mootdx `xdxr`）。
-    pub fn xdxr(
-        &mut self,
-        market: u16,
-        code: &str,
-    ) -> std::io::Result<Vec<super::XdxrData>> {
+    pub fn xdxr(&mut self, market: u16, code: &str) -> std::io::Result<Vec<super::XdxrData>> {
         let mut xdxr = Xdxr::new(market, code);
         xdxr.recv_parsed(&mut self.tcp)?;
         Ok(xdxr.result().to_vec())
@@ -227,13 +224,8 @@ impl Client {
         cat.recv_parsed(&mut self.tcp)?;
         let mut result = Vec::with_capacity(cat.result().len());
         for item in cat.result() {
-            let mut content = CompanyInfoContent::new(
-                market,
-                code,
-                &item.filename,
-                item.start,
-                item.length,
-            );
+            let mut content =
+                CompanyInfoContent::new(market, code, &item.filename, item.start, item.length);
             content.recv_parsed(&mut self.tcp)?;
             result.push((item.name.clone(), std::mem::take(&mut content.data)));
         }
@@ -257,13 +249,18 @@ use super::SecurityQuotes as SecurityQuotesRef;
 
 #[cfg(test)]
 mod tests {
-    
 
     #[test]
     fn k_range_retain_logic() {
         // 直接测试日期过滤逻辑所依赖的 to_u32 排序
         use crate::tcp::helper::DateTime;
-        let d = DateTime { year: 2026, month: 9, day: 1, hour: 15, minute: 0 };
+        let d = DateTime {
+            year: 2026,
+            month: 9,
+            day: 1,
+            hour: 15,
+            minute: 0,
+        };
         assert_eq!(d.to_u32(), 20260901);
     }
 }

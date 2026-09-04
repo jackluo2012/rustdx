@@ -1,4 +1,4 @@
-use eyre::{anyhow, Result};
+use eyre::{Result, anyhow};
 use std::collections::HashSet;
 
 // 股票上限
@@ -91,7 +91,6 @@ fn cookie() -> String {
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36";
 const ACCEPT_LANGUAGE: &str =
     "zh-CN,zh;q=0.9,de;q=0.8,ko;q=0.7,ru;q=0.6,it;q=0.5,ga;q=0.4,en;q=0.3";
-
 
 // 上交所 科创板 68 开头（目前 350 只，只需一次请求） => stockType=8, pagesize=400
 //        A 股 60 开头（目前 1650 只，只需一次请求） => stockType=1, pagesize=1700

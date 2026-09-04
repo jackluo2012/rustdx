@@ -3,7 +3,7 @@ pub use key::KEY;
 mod fq;
 pub use fq::*;
 
-use crate::{bytes_helper::*, Result};
+use crate::{Result, bytes_helper::*};
 
 use std::collections::HashMap;
 pub type StockGbbq<'a> = HashMap<u32, Vec<Gbbq<'a>>>;
@@ -73,13 +73,22 @@ impl<'a> Gbbq<'a> {
 
     // 未解密二进制数据转化成 [`Gbbq`]
     pub fn iter(bytes: &mut [u8]) -> impl Iterator<Item = Gbbq<'_>> {
-        bytes.as_chunks_mut::<29>().0.iter_mut().map(|c| parse(c)).map(Gbbq::from_chunk)
+        bytes
+            .as_chunks_mut::<29>()
+            .0
+            .iter_mut()
+            .map(|c| parse(c))
+            .map(Gbbq::from_chunk)
         // bytes.chunks_exact_mut(29).map(parse).map(Gbbq::from_chunk_mut)
     }
 
     // 解密二进制数据转化成 [`Gbbq`]
     pub fn iter_deciphered(bytes: &'a [u8]) -> impl Iterator<Item = Gbbq<'a>> {
-        bytes.as_chunks::<29>().0.iter().map(|c| Self::from_chunk(c))
+        bytes
+            .as_chunks::<29>()
+            .0
+            .iter()
+            .map(|c| Self::from_chunk(c))
     }
 
     #[inline]
@@ -160,13 +169,15 @@ impl Gbbqs {
     pub fn to_vec(&mut self) -> Vec<Gbbq<'_>> {
         if self.parsed {
             self.data[4..]
-                .as_chunks::<29>().0
+                .as_chunks::<29>()
+                .0
                 .iter()
                 .map(|c| Gbbq::from_chunk(c))
                 .collect()
         } else {
             let res = self.data[4..]
-                .as_chunks_mut::<29>().0
+                .as_chunks_mut::<29>()
+                .0
                 .iter_mut()
                 .map(|c| parse(c))
                 .map(Gbbq::from_chunk)

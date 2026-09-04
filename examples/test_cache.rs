@@ -49,22 +49,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 第一次调用：缓存未命中
     println!("\n第一次获取（缓存未命中）:");
-    let data1: Result<Vec<u8>, Box<dyn std::error::Error>> = cache.get_or_fetch("kline:1:600000:9", || {
-        fetch_count += 1;
-        println!("  → 从服务器获取数据...");
-        Ok(vec![1, 2, 3, 4, 5])
-    });
+    let data1: Result<Vec<u8>, Box<dyn std::error::Error>> =
+        cache.get_or_fetch("kline:1:600000:9", || {
+            fetch_count += 1;
+            println!("  → 从服务器获取数据...");
+            Ok(vec![1, 2, 3, 4, 5])
+        });
 
     println!("  结果: {:?}", data1);
     println!("  总获取次数: {}", fetch_count);
 
     // 第二次调用：缓存命中
     println!("\n第二次获取（缓存命中）:");
-    let data2: Result<Vec<u8>, Box<dyn std::error::Error>> = cache.get_or_fetch("kline:1:600000:9", || {
-        fetch_count += 1;
-        println!("  → 从服务器获取数据...");
-        Ok(vec![1, 2, 3, 4, 5])
-    });
+    let data2: Result<Vec<u8>, Box<dyn std::error::Error>> =
+        cache.get_or_fetch("kline:1:600000:9", || {
+            fetch_count += 1;
+            println!("  → 从服务器获取数据...");
+            Ok(vec![1, 2, 3, 4, 5])
+        });
 
     println!("  结果: {:?}", data2);
     println!("  总获取次数: {} (未增加，因为缓存命中)", fetch_count);

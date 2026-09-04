@@ -1,5 +1,5 @@
-use crate::tcp::Tdx;
 use crate::bytes_helper::u16_from_le_bytes;
+use crate::tcp::Tdx;
 
 /// 获取历史分时数据。对应于 pytdx 的 hq.get_history_minute_time_data。
 ///
@@ -110,7 +110,8 @@ impl<'a> Tdx for HistoryMinuteTime<'a> {
             last_price += price_raw;
             let price = last_price as f64 / 100.0;
 
-            self.data.push(super::minute_time::MinuteTimeData { price, vol });
+            self.data
+                .push(super::minute_time::MinuteTimeData { price, vol });
         }
 
         // 防御性校验（同当日分时）：协议变化时返回空数据而非垃圾

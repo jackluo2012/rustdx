@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Build / Test / Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+
+      - name: Build (all targets)
+        run: cargo build --workspace --all-targets
+
+      - name: Test
+        run: cargo test --workspace
+        env:
+          # 网络相关测试在 CI 环境不稳定，跳过实盘验证
+          RUSTDX_SKIP_INTEGRATION_TESTS: "1"
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Format check
+        run: cargo fmt --all -- --check

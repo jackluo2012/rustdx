@@ -1,9 +1,9 @@
 #!/usr/bin/env rustx
+use rustdx_complete::tcp::stock::SecurityQuotes;
 /**
 测试SecurityQuotes功能，获取实时股票行情
 */
 use rustdx_complete::tcp::{Tcp, Tdx};
-use rustdx_complete::tcp::stock::SecurityQuotes;
 
 fn run_tests(tcp: &mut Tcp) {
     // 测试单只股票
@@ -34,10 +34,10 @@ fn run_tests(tcp: &mut Tcp) {
 
     println!("\n3️⃣  测试获取多只股票行情...");
     let stocks = vec![
-        (0, "000001"),  // 平安银行
-        (0, "000002"),  // 万科A
-        (1, "600000"),  // 浦发银行
-        (1, "600519"),  // 贵州茅台
+        (0, "000001"), // 平安银行
+        (0, "000002"), // 万科A
+        (1, "600000"), // 浦发银行
+        (1, "600519"), // 贵州茅台
     ];
     let mut quotes = SecurityQuotes::new(stocks);
     match quotes.recv_parsed(tcp) {
@@ -45,10 +45,9 @@ fn run_tests(tcp: &mut Tcp) {
             println!("   ✅ 获取成功\n");
             println!("   📊 股票行情列表:");
             for quote in quotes.result() {
-                println!("      {}: {:.2}元 ({:.2}%)",
-                    quote.code,
-                    quote.price,
-                    quote.change_percent
+                println!(
+                    "      {}: {:.2}元 ({:.2}%)",
+                    quote.code, quote.price, quote.change_percent
                 );
             }
         }

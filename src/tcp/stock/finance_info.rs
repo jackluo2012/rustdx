@@ -1,5 +1,5 @@
-use crate::tcp::Tdx;
 use crate::bytes_helper::{u16_from_le_bytes, u32_from_le_bytes};
+use crate::tcp::Tdx;
 
 /// 获取股票财务信息。对应于 pytdx 中的 hq.get_finance_info、GetFinanceInfoCmd。
 ///
@@ -67,8 +67,8 @@ impl<'a> Tdx for FinanceInfo<'a> {
     /// - 字节14：market（市场代码）
     /// - 字节15-20：code（股票代码，6字节）
     const SEND: &'static [u8] = &[
-        0x0c, 0x1f, 0x18, 0x76, 0x00, 0x01, 0x0b, 0x00, 0x0b, 0x00, 0x10, 0x00,
-        0x01, 0x00, // 固定包头（14字节）
+        0x0c, 0x1f, 0x18, 0x76, 0x00, 0x01, 0x0b, 0x00, 0x0b, 0x00, 0x10, 0x00, 0x01,
+        0x00, // 固定包头（14字节）
     ];
 
     const TAG: &'static str = "财务信息";
@@ -87,7 +87,11 @@ impl<'a> Tdx for FinanceInfo<'a> {
     fn parse(&mut self, v: Vec<u8>) {
         // 检查最小长度：2(跳过) + 7(market+code) + 136(1f+2H+2I+30f 字段) = 145
         if v.len() < 145 {
-            debug_assert!(false, "财务信息数据长度不足: {} 字节（需要至少 145 字节）", v.len());
+            debug_assert!(
+                false,
+                "财务信息数据长度不足: {} 字节（需要至少 145 字节）",
+                v.len()
+            );
             self.response = v;
             self.data = Vec::new();
             return;
@@ -110,40 +114,74 @@ impl<'a> Tdx for FinanceInfo<'a> {
         // 格式: fHHIIffffffffffffffffffffffffffffff
         // 1个float, 2个u16, 2个u32, 26个float
 
-        let liutongguben = f32_from_le_bytes(&v, pos); pos += 4;
-        let province = u16_from_le_bytes(&v, pos); pos += 2;
-        let industry = u16_from_le_bytes(&v, pos); pos += 2;
-        let updated_date = u32_from_le_bytes(&v, pos); pos += 4;
-        let ipo_date = u32_from_le_bytes(&v, pos); pos += 4;
-        let zongguben = f32_from_le_bytes(&v, pos); pos += 4;
-        let guojiagu = f32_from_le_bytes(&v, pos); pos += 4;
-        let faqirenfarengu = f32_from_le_bytes(&v, pos); pos += 4;
-        let farengu = f32_from_le_bytes(&v, pos); pos += 4;
-        let bgu = f32_from_le_bytes(&v, pos); pos += 4;
-        let hgu = f32_from_le_bytes(&v, pos); pos += 4;
-        let zhigonggu = f32_from_le_bytes(&v, pos); pos += 4;
-        let zongzichan = f32_from_le_bytes(&v, pos); pos += 4;
-        let liudongzichan = f32_from_le_bytes(&v, pos); pos += 4;
-        let gudingzichan = f32_from_le_bytes(&v, pos); pos += 4;
-        let wuxingzichan = f32_from_le_bytes(&v, pos); pos += 4;
-        let gudongrenshu = f32_from_le_bytes(&v, pos); pos += 4;
-        let liudongfuzhai = f32_from_le_bytes(&v, pos); pos += 4;
-        let changqifuzhai = f32_from_le_bytes(&v, pos); pos += 4;
-        let zibengongjijin = f32_from_le_bytes(&v, pos); pos += 4;
-        let jingzichan = f32_from_le_bytes(&v, pos); pos += 4;
-        let zhuyingshouru = f32_from_le_bytes(&v, pos); pos += 4;
-        let zhuyinglirun = f32_from_le_bytes(&v, pos); pos += 4;
-        let yingshouzhangkuan = f32_from_le_bytes(&v, pos); pos += 4;
-        let yingyelirun = f32_from_le_bytes(&v, pos); pos += 4;
-        let touzishouyu = f32_from_le_bytes(&v, pos); pos += 4;
-        let jingyingxianjinliu = f32_from_le_bytes(&v, pos); pos += 4;
-        let zongxianjinliu = f32_from_le_bytes(&v, pos); pos += 4;
-        let cunhuo = f32_from_le_bytes(&v, pos); pos += 4;
-        let lirunzonghe = f32_from_le_bytes(&v, pos); pos += 4;
-        let shuihoulirun = f32_from_le_bytes(&v, pos); pos += 4;
-        let jinglirun = f32_from_le_bytes(&v, pos); pos += 4;
-        let weifenpeilirun = f32_from_le_bytes(&v, pos); pos += 4;
-        let baoliu1 = f32_from_le_bytes(&v, pos); pos += 4;
+        let liutongguben = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let province = u16_from_le_bytes(&v, pos);
+        pos += 2;
+        let industry = u16_from_le_bytes(&v, pos);
+        pos += 2;
+        let updated_date = u32_from_le_bytes(&v, pos);
+        pos += 4;
+        let ipo_date = u32_from_le_bytes(&v, pos);
+        pos += 4;
+        let zongguben = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let guojiagu = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let faqirenfarengu = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let farengu = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let bgu = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let hgu = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let zhigonggu = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let zongzichan = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let liudongzichan = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let gudingzichan = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let wuxingzichan = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let gudongrenshu = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let liudongfuzhai = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let changqifuzhai = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let zibengongjijin = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let jingzichan = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let zhuyingshouru = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let zhuyinglirun = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let yingshouzhangkuan = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let yingyelirun = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let touzishouyu = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let jingyingxianjinliu = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let zongxianjinliu = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let cunhuo = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let lirunzonghe = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let shuihoulirun = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let jinglirun = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let weifenpeilirun = f32_from_le_bytes(&v, pos);
+        pos += 4;
+        let baoliu1 = f32_from_le_bytes(&v, pos);
+        pos += 4;
         let baoliu2 = f32_from_le_bytes(&v, pos);
 
         let info = FinanceInfoData {
@@ -303,7 +341,12 @@ mod tests {
     fn test_finance_info_send_bytes() {
         let finance = FinanceInfo::new(0, "000001");
         // 验证包头
-        assert_eq!(&finance.send[0..14], &[0x0c, 0x1f, 0x18, 0x76, 0x00, 0x01, 0x0b, 0x00, 0x0b, 0x00, 0x10, 0x00, 0x01, 0x00]);
+        assert_eq!(
+            &finance.send[0..14],
+            &[
+                0x0c, 0x1f, 0x18, 0x76, 0x00, 0x01, 0x0b, 0x00, 0x0b, 0x00, 0x10, 0x00, 0x01, 0x00
+            ]
+        );
         // 验证market
         assert_eq!(finance.send[14], 0);
         // 验证code

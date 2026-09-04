@@ -19,10 +19,10 @@ pub mod builder;
 pub mod pool;
 
 // 重新导出常用错误类型
-pub use error::{Error, Result, TcpError, ValidationError, CacheError, IndicatorError};
+pub use error::{CacheError, Error, IndicatorError, Result, TcpError, ValidationError};
 
 // 重新导出Builder
-pub use builder::{KlineBuilder};
+pub use builder::KlineBuilder;
 
 // 重新导出连接池
 pub use pool::{ConnectionPool, PoolConfig, PoolStats};

@@ -7,8 +7,8 @@
 //! cargo run --example test_data_validation
 //! ```
 
+use rustdx_complete::tcp::stock::{FinanceInfo, Kline, validator::*};
 use rustdx_complete::tcp::{Tcp, Tdx};
-use rustdx_complete::tcp::stock::{Kline, FinanceInfo, validator::*};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🔍 rustdx 数据完整性验证示例\n");
@@ -67,9 +67,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("股票代码: {}", finance_info.code);
     println!("总股本: {:.2} 亿股", finance_info.zongguben / 1_0000_0000.0);
-    println!("流通股: {:.2} 亿股", finance_info.liutongguben / 1_0000_0000.0);
-    println!("净资产: {:.2} 亿元", finance_info.jingzichan / 1_0000_0000.0);
-    println!("总资产: {:.2} 亿元\n", finance_info.zongzichan / 1_0000_0000.0);
+    println!(
+        "流通股: {:.2} 亿股",
+        finance_info.liutongguben / 1_0000_0000.0
+    );
+    println!(
+        "净资产: {:.2} 亿元",
+        finance_info.jingzichan / 1_0000_0000.0
+    );
+    println!(
+        "总资产: {:.2} 亿元\n",
+        finance_info.zongzichan / 1_0000_0000.0
+    );
 
     let result = validate_finance_consistency(finance_info);
 
@@ -136,7 +145,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
     if let Some(first_bar) = kline.result().first() {
-        println!("验证日期: {:04}-{:02}-{:02}", first_bar.dt.year, first_bar.dt.month, first_bar.dt.day);
+        println!(
+            "验证日期: {:04}-{:02}-{:02}",
+            first_bar.dt.year, first_bar.dt.month, first_bar.dt.day
+        );
         println!("开盘价: {:.2}", first_bar.open);
         println!("收盘价: {:.2}", first_bar.close);
         println!("最高价: {:.2}", first_bar.high);

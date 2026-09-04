@@ -1,9 +1,9 @@
 #!/usr/bin/env rustx
+use rustdx_complete::tcp::stock::SecurityList;
 /**
 测试SecurityList功能，获取股票列表
 */
 use rustdx_complete::tcp::{Tcp, Tdx};
-use rustdx_complete::tcp::stock::SecurityList;
 
 fn main() {
     println!("🚀 测试SecurityList功能\n");
@@ -21,7 +21,7 @@ fn main() {
             println!("   ❌ 默认连接失败: {}，尝试其他服务器...", e);
 
             // 尝试其他服务器IP
-            
+
             return;
         }
     }
@@ -41,7 +41,8 @@ fn test_list(tcp: &mut Tcp) {
 
             println!("   前10只股票:");
             for (i, stock) in list.result().iter().take(10).enumerate() {
-                println!("      {:2}. {} {} - 成交量单位:{}",
+                println!(
+                    "      {:2}. {} {} - 成交量单位:{}",
                     i + 1,
                     stock.code,
                     stock.name,
@@ -66,7 +67,8 @@ fn test_list(tcp: &mut Tcp) {
             if !list.result().is_empty() {
                 println!("   前10只股票:");
                 for (i, stock) in list.result().iter().take(10).enumerate() {
-                    println!("      {:2}. {} {} - 成交量单位:{}",
+                    println!(
+                        "      {:2}. {} {} - 成交量单位:{}",
                         i + 1,
                         stock.code,
                         stock.name,
@@ -92,7 +94,8 @@ fn test_list(tcp: &mut Tcp) {
             if !list.result().is_empty() {
                 println!("   前10只股票:");
                 for (i, stock) in list.result().iter().take(10).enumerate() {
-                    println!("      {:2}. {} {} - 成交量单位:{}",
+                    println!(
+                        "      {:2}. {} {} - 成交量单位:{}",
                         i + 1,
                         stock.code,
                         stock.name,

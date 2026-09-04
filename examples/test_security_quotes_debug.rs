@@ -1,9 +1,9 @@
 #!/usr/bin/env rustx
+use rustdx_complete::tcp::stock::SecurityQuotes;
 /**
 测试SecurityQuotes功能，并打印调试信息
 */
 use rustdx_complete::tcp::{Tcp, Tdx};
-use rustdx_complete::tcp::stock::SecurityQuotes;
 
 fn main() {
     println!("🚀 测试SecurityQuotes功能（调试模式）\n");
@@ -35,11 +35,12 @@ fn test_quotes(tcp: &mut Tcp) {
     println!("      前30字节（hex）:");
     for i in (0..send_bytes.len().min(30)).step_by(8) {
         let end = (i + 8).min(send_bytes.len());
-        let hex_str: String = send_bytes[i..end].iter()
+        let hex_str: String = send_bytes[i..end]
+            .iter()
             .map(|b| format!("{:02x}", b))
             .collect::<Vec<_>>()
             .join(" ");
-        println!("         字节 {:2}-{:2}: {}", i, end-1, hex_str);
+        println!("         字节 {:2}-{:2}: {}", i, end - 1, hex_str);
     }
 
     match quotes.recv_parsed(tcp) {

@@ -1,5 +1,5 @@
-use crate::tcp::Tdx;
 use crate::bytes_helper::u16_from_le_bytes;
+use crate::tcp::Tdx;
 
 /// 获取股票分时数据。对应于 pytdx 中的 hq.get_minute_time_data、GetMinuteTimeDataCmd。
 ///
@@ -202,7 +202,12 @@ mod tests {
     fn test_minute_time_send_bytes() {
         let minute = MinuteTime::new(0, "000001");
         // 验证包头
-        assert_eq!(&minute.send[0..12], &[0x0c, 0x1b, 0x08, 0x00, 0x01, 0x01, 0x0e, 0x00, 0x0e, 0x00, 0x1d, 0x05]);
+        assert_eq!(
+            &minute.send[0..12],
+            &[
+                0x0c, 0x1b, 0x08, 0x00, 0x01, 0x01, 0x0e, 0x00, 0x0e, 0x00, 0x1d, 0x05
+            ]
+        );
         // 验证market
         assert_eq!(&minute.send[12..14], &[0x00, 0x00]);
         // 验证code

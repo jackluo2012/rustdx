@@ -49,8 +49,8 @@ impl Default for PoolConfig {
     fn default() -> Self {
         Self {
             max_size: 3,
-            max_idle: 600,        // 10分钟
-            max_lifetime: 3600,   // 1小时
+            max_idle: 600,      // 10分钟
+            max_lifetime: 3600, // 1小时
             health_check_timeout: 5,
         }
     }
@@ -215,7 +215,7 @@ impl ConnectionPool {
         if connections.len() < self.config.max_size {
             let tcp = Tcp::new()?;
             let new_conn = PooledConnection {
-                tcp: None,  // TCP会被PooledConn持有
+                tcp: None, // TCP会被PooledConn持有
                 created_at: Instant::now(),
                 last_used: Instant::now(),
                 in_use: true,

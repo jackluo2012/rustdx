@@ -33,7 +33,7 @@
 //! # }
 //! ```
 
-use super::{KlineData, FinanceInfoData};
+use super::{FinanceInfoData, KlineData};
 use crate::tcp::helper::DateTime;
 
 // ============================================================================
@@ -87,7 +87,11 @@ impl ValidationResult {
     }
 
     /// 创建警告结果
-    pub fn warning(message: impl Into<String>, details: Vec<String>, suggestions: Vec<String>) -> Self {
+    pub fn warning(
+        message: impl Into<String>,
+        details: Vec<String>,
+        suggestions: Vec<String>,
+    ) -> Self {
         Self {
             level: ValidationLevel::Warning(message.into()),
             details,
@@ -97,7 +101,11 @@ impl ValidationResult {
     }
 
     /// 创建错误结果
-    pub fn error(message: impl Into<String>, details: Vec<String>, suggestions: Vec<String>) -> Self {
+    pub fn error(
+        message: impl Into<String>,
+        details: Vec<String>,
+        suggestions: Vec<String>,
+    ) -> Self {
         Self {
             level: ValidationLevel::Error(message.into()),
             details,
@@ -139,10 +147,7 @@ impl ValidationResult {
 ///     println!("发现缺失日期: {:?}", result.details);
 /// }
 /// ```
-pub fn validate_kline_continuity(
-    data: &[KlineData],
-    _code: &str,
-) -> ValidationResult {
+pub fn validate_kline_continuity(data: &[KlineData], _code: &str) -> ValidationResult {
     if data.is_empty() {
         return ValidationResult::error(
             "数据为空",
@@ -171,8 +176,12 @@ pub fn validate_kline_continuity(
             if days_diff > 3 {
                 issues.push(format!(
                     "日期跳变: {:04}-{:02}-{:02} 到 {:04}-{:02}-{:02} (间隔 {} 天，可能缺失交易日)",
-                    prev.year, prev.month, prev.day,
-                    bar.dt.year, bar.dt.month, bar.dt.day,
+                    prev.year,
+                    prev.month,
+                    prev.day,
+                    bar.dt.year,
+                    bar.dt.month,
+                    bar.dt.day,
                     days_diff
                 ));
             }
@@ -181,10 +190,7 @@ pub fn validate_kline_continuity(
     }
 
     if issues.is_empty() {
-        ValidationResult::ok(format!(
-            "K线数据连续性检查通过（共 {} 条）",
-            data.len()
-        ))
+        ValidationResult::ok(format!("K线数据连续性检查通过（共 {} 条）", data.len()))
     } else {
         ValidationResult::warning(
             format!("发现 {} 个可能的日期不连续", issues.len()),
@@ -236,9 +242,7 @@ fn calculate_date_diff(dt1: &DateTime, dt2: &DateTime) -> i32 {
 ///     println!("财务数据存在一致性问题: {:?}", result.details);
 /// }
 /// ```
-pub fn validate_finance_consistency(
-    data: &FinanceInfoData,
-) -> ValidationResult {
+pub fn validate_finance_consistency(data: &FinanceInfoData) -> ValidationResult {
     let mut issues = Vec::new();
 
     // 检查 1: 总股本 >= 流通股本
@@ -277,10 +281,7 @@ pub fn validate_finance_consistency(
     }
 
     if issues.is_empty() {
-        ValidationResult::ok(format!(
-            "财务数据一致性检查通过（股票：{}）",
-            data.code
-        ))
+        ValidationResult::ok(format!("财务数据一致性检查通过（股票：{}）", data.code))
     } else {
         ValidationResult::error(
             format!("财务数据存在 {} 个一致性问题", issues.len()),
@@ -317,10 +318,7 @@ pub fn validate_finance_consistency(
 ///     println!("检测到 {} 个异常值", result.details.len());
 /// }
 /// ```
-pub fn detect_anomalies(
-    data: &[KlineData],
-    threshold: f64,
-) -> ValidationResult {
+pub fn detect_anomalies(data: &[KlineData], threshold: f64) -> ValidationResult {
     if data.is_empty() {
         return ValidationResult::error(
             "数据为空",
@@ -351,7 +349,9 @@ pub fn detect_anomalies(
             if change_pct > 0.20 {
                 anomalies.push(format!(
                     "{:04}-{:02}-{:02} 价格异常波动: {:.2}% (前收:{:.2}, 今收:{:.2})",
-                    curr.dt.year, curr.dt.month, curr.dt.day,
+                    curr.dt.year,
+                    curr.dt.month,
+                    curr.dt.day,
                     change_pct * 100.0,
                     prev.close,
                     curr.close
@@ -365,9 +365,8 @@ pub fn detect_anomalies(
 
     // 计算均值和标准差
     let mean_vol = volumes.iter().sum::<f64>() / volumes.len() as f64;
-    let variance = volumes.iter()
-        .map(|v| (v - mean_vol).powi(2))
-        .sum::<f64>() / volumes.len() as f64;
+    let variance =
+        volumes.iter().map(|v| (v - mean_vol).powi(2)).sum::<f64>() / volumes.len() as f64;
     let std_vol = variance.sqrt();
 
     // 只检查有明显波动的数据（std > 0）
@@ -378,8 +377,7 @@ pub fn detect_anomalies(
             if z_score.abs() > threshold {
                 anomalies.push(format!(
                     "{:04}-{:02}-{:02} 成交量异常: {:.0} (Z-score: {:.1}, 均值: {:.0})",
-                    bar.dt.year, bar.dt.month, bar.dt.day,
-                    bar.vol, z_score, mean_vol
+                    bar.dt.year, bar.dt.month, bar.dt.day, bar.vol, z_score, mean_vol
                 ));
             }
         }
@@ -390,32 +388,28 @@ pub fn detect_anomalies(
         if bar.high < bar.low {
             anomalies.push(format!(
                 "{:04}-{:02}-{:02} 最高价({:.2}) 低于最低价({:.2})",
-                bar.dt.year, bar.dt.month, bar.dt.day,
-                bar.high, bar.low
+                bar.dt.year, bar.dt.month, bar.dt.day, bar.high, bar.low
             ));
         }
 
         if bar.close > bar.high {
             anomalies.push(format!(
                 "{:04}-{:02}-{:02} 收盘价({:.2}) 高于最高价({:.2})",
-                bar.dt.year, bar.dt.month, bar.dt.day,
-                bar.close, bar.high
+                bar.dt.year, bar.dt.month, bar.dt.day, bar.close, bar.high
             ));
         }
 
         if bar.close < bar.low {
             anomalies.push(format!(
                 "{:04}-{:02}-{:02} 收盘价({:.2}) 低于最低价({:.2})",
-                bar.dt.year, bar.dt.month, bar.dt.day,
-                bar.close, bar.low
+                bar.dt.year, bar.dt.month, bar.dt.day, bar.close, bar.low
             ));
         }
 
         if bar.open <= 0.0 || bar.close <= 0.0 {
             anomalies.push(format!(
                 "{:04}-{:02}-{:02} 价格为零或负数（开:{:.2}, 收:{:.2}）",
-                bar.dt.year, bar.dt.month, bar.dt.day,
-                bar.open, bar.close
+                bar.dt.year, bar.dt.month, bar.dt.day, bar.open, bar.close
             ));
         }
     }
@@ -482,8 +476,10 @@ impl<'a> Validatable for KlineData<'a> {
         }
 
         if issues.is_empty() {
-            ValidationResult::ok(format!("{:04}-{:02}-{:02} 数据验证通过",
-                self.dt.year, self.dt.month, self.dt.day))
+            ValidationResult::ok(format!(
+                "{:04}-{:02}-{:02} 数据验证通过",
+                self.dt.year, self.dt.month, self.dt.day
+            ))
         } else {
             ValidationResult::error(
                 "单条数据验证失败".to_string(),
@@ -519,8 +515,12 @@ mod tests {
         }
     }
 
-    fn create_test_kline_data(dates: Vec<DateTime>, close_prices: Vec<f64>) -> Vec<KlineData<'static>> {
-        dates.into_iter()
+    fn create_test_kline_data(
+        dates: Vec<DateTime>,
+        close_prices: Vec<f64>,
+    ) -> Vec<KlineData<'static>> {
+        dates
+            .into_iter()
             .zip(close_prices)
             .map(|(dt, close)| KlineData {
                 dt,
@@ -595,10 +595,10 @@ mod tests {
     fn test_finance_consistency_normal() {
         let data = FinanceInfoData {
             code: "600000".to_string(),
-            zongguben: 1000000000.0,      // 10亿股
-            liutongguben: 800000000.0,    // 8亿股
-            jingzichan: 50000000000.0,    // 500亿
-            zongzichan: 100000000000.0,   // 1000亿
+            zongguben: 1000000000.0,    // 10亿股
+            liutongguben: 800000000.0,  // 8亿股
+            jingzichan: 50000000000.0,  // 500亿
+            zongzichan: 100000000000.0, // 1000亿
             ..Default::default()
         };
 

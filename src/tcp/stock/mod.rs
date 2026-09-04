@@ -8,7 +8,7 @@ mod xdxr;
 pub use xdxr::*;
 
 mod quotes;
-pub use quotes::{SecurityQuotes, QuoteData};
+pub use quotes::{QuoteData, SecurityQuotes};
 
 mod security_list;
 pub use security_list::{SecurityList, SecurityListData};
@@ -29,12 +29,12 @@ mod history_transaction;
 pub use history_transaction::HistoryTransaction;
 
 mod block_info;
-pub use block_info::{BlockInfoChunk, BlockInfoMeta, BlockRecord, get_block_info, parse_block_content};
+pub use block_info::{
+    BlockInfoChunk, BlockInfoMeta, BlockRecord, get_block_info, parse_block_content,
+};
 
 mod company_info;
-pub use company_info::{
-    CompanyInfoCategory, CompanyInfoCategoryItem, CompanyInfoContent,
-};
+pub use company_info::{CompanyInfoCategory, CompanyInfoCategoryItem, CompanyInfoContent};
 
 mod client;
 pub use client::Client;
@@ -95,19 +95,14 @@ pub fn stocks(tcp: &mut crate::tcp::Tcp, market: u16) -> crate::Result<Vec<Secur
 }
 
 mod industry_mapping;
-pub use industry_mapping::{get_industry_name, get_industry_info, get_province_name};
+pub use industry_mapping::{get_industry_info, get_industry_name, get_province_name};
 
 mod concept_mapping;
-pub use concept_mapping::{ConceptStock, get_concept_stocks, get_concept_names, get_concept_info};
+pub use concept_mapping::{ConceptStock, get_concept_info, get_concept_names, get_concept_stocks};
 
 // 数据验证模块
 pub mod validator;
 pub use validator::{
-    ValidationResult,
-    ValidationLevel,
-    DataLocation,
-    Validatable,
-    validate_kline_continuity,
-    validate_finance_consistency,
-    detect_anomalies,
+    DataLocation, Validatable, ValidationLevel, ValidationResult, detect_anomalies,
+    validate_finance_consistency, validate_kline_continuity,
 };

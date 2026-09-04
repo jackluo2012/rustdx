@@ -1,9 +1,9 @@
 #!/usr/bin/env rustx
+use rustdx_complete::tcp::stock::SecurityList;
 /**
 验证 rustdx-complete v0.6.0 安装
 */
 use rustdx_complete::tcp::{Tcp, Tdx};
-use rustdx_complete::tcp::stock::SecurityList;
 
 fn main() {
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -37,7 +37,10 @@ fn main() {
                         // 验证中文显示
                         let first_stock = &list.result()[0];
                         if !first_stock.name.is_empty() {
-                            let has_chinese = first_stock.name.chars().any(|c| ('\u{4E00}'..='\u{9FFF}').contains(&c));
+                            let has_chinese = first_stock
+                                .name
+                                .chars()
+                                .any(|c| ('\u{4E00}'..='\u{9FFF}').contains(&c));
                             if has_chinese {
                                 println!("✅ 中文编码: 正常");
                                 println!("✅ 所有测试通过！\n");

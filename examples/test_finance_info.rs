@@ -1,9 +1,9 @@
 #!/usr/bin/env rustx
+use rustdx_complete::tcp::stock::FinanceInfo;
 /**
 测试FinanceInfo功能，获取股票财务信息
 */
 use rustdx_complete::tcp::{Tcp, Tdx};
-use rustdx_complete::tcp::stock::FinanceInfo;
 
 fn main() {
     println!("🚀 测试FinanceInfo功能\n");

@@ -29,7 +29,7 @@
 //! let dates = TradingCalendar::get_trading_days(&date, 10);
 //! ```
 
-use chrono::{NaiveDate, NaiveDateTime, Datelike, Timelike};
+use chrono::{Datelike, NaiveDate, NaiveDateTime, Timelike};
 use trade_date_a;
 
 /// 中国A股交易日历
@@ -411,23 +411,28 @@ mod tests {
     #[test]
     fn test_is_trading_time() {
         // 交易时间内（周一 10:00）
-        let dt1 = NaiveDateTime::parse_from_str("2025-01-06 10:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let dt1 =
+            NaiveDateTime::parse_from_str("2025-01-06 10:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
         assert!(TradingCalendar::is_trading_time(&dt1));
 
         // 交易时间内（周一 14:00）
-        let dt2 = NaiveDateTime::parse_from_str("2025-01-06 14:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let dt2 =
+            NaiveDateTime::parse_from_str("2025-01-06 14:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
         assert!(TradingCalendar::is_trading_time(&dt2));
 
         // 交易时间前（周一 9:00）
-        let dt3 = NaiveDateTime::parse_from_str("2025-01-06 09:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let dt3 =
+            NaiveDateTime::parse_from_str("2025-01-06 09:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
         assert!(!TradingCalendar::is_trading_time(&dt3));
 
         // 交易时间后（周一 16:00）
-        let dt4 = NaiveDateTime::parse_from_str("2025-01-06 16:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let dt4 =
+            NaiveDateTime::parse_from_str("2025-01-06 16:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
         assert!(!TradingCalendar::is_trading_time(&dt4));
 
         // 周末（即使时间在9:30-15:00也不是交易时间）
-        let dt5 = NaiveDateTime::parse_from_str("2025-01-04 10:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let dt5 =
+            NaiveDateTime::parse_from_str("2025-01-04 10:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
         assert!(!TradingCalendar::is_trading_time(&dt5));
     }
 

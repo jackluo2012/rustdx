@@ -217,15 +217,15 @@ impl<'a> KlineBuilder<'a> {
         let market = self.market.unwrap_or_else(|| {
             // 自动识别市场：6开头的上海，其他深圳
             if code.starts_with('6') {
-                1  // 上海
+                1 // 上海
             } else {
-                0  // 深圳（0/3 开头及其他默认深圳）
+                0 // 深圳（0/3 开头及其他默认深圳）
             }
         });
 
-        let category = self.category.unwrap_or(9);  // 默认日线
-        let start = self.start.unwrap_or(0);        // 默认从0开始
-        let count = self.count.unwrap_or(100);      // 默认100条
+        let category = self.category.unwrap_or(9); // 默认日线
+        let start = self.start.unwrap_or(0); // 默认从0开始
+        let count = self.count.unwrap_or(100); // 默认100条
 
         // 验证参数范围
         if count > 800 {
@@ -257,11 +257,7 @@ impl<'a> KlineBuilder<'a> {
     /// let kline = KlineBuilder::daily("600000", 100).unwrap();
     /// ```
     pub fn daily(code: &'a str, count: u16) -> Result<Kline<'a>, String> {
-        Self::new()
-            .code(code)
-            .category(9)
-            .count(count)
-            .build()
+        Self::new().code(code).category(9).count(count).build()
     }
 
     /// 60分钟线（快捷方法）
@@ -274,11 +270,7 @@ impl<'a> KlineBuilder<'a> {
     /// let kline = KlineBuilder::min60("600000", 100).unwrap();
     /// ```
     pub fn min60(code: &'a str, count: u16) -> Result<Kline<'a>, String> {
-        Self::new()
-            .code(code)
-            .category(3)
-            .count(count)
-            .build()
+        Self::new().code(code).category(3).count(count).build()
     }
 
     /// 30分钟线（快捷方法）
@@ -291,11 +283,7 @@ impl<'a> KlineBuilder<'a> {
     /// let kline = KlineBuilder::min30("600000", 100).unwrap();
     /// ```
     pub fn min30(code: &'a str, count: u16) -> Result<Kline<'a>, String> {
-        Self::new()
-            .code(code)
-            .category(2)
-            .count(count)
-            .build()
+        Self::new().code(code).category(2).count(count).build()
     }
 
     /// 15分钟线（快捷方法）
@@ -308,11 +296,7 @@ impl<'a> KlineBuilder<'a> {
     /// let kline = KlineBuilder::min15("600000", 100).unwrap();
     /// ```
     pub fn min15(code: &'a str, count: u16) -> Result<Kline<'a>, String> {
-        Self::new()
-            .code(code)
-            .category(1)
-            .count(count)
-            .build()
+        Self::new().code(code).category(1).count(count).build()
     }
 
     /// 5分钟线（快捷方法）
@@ -325,11 +309,7 @@ impl<'a> KlineBuilder<'a> {
     /// let kline = KlineBuilder::min5("600000", 100).unwrap();
     /// ```
     pub fn min5(code: &'a str, count: u16) -> Result<Kline<'a>, String> {
-        Self::new()
-            .code(code)
-            .category(0)
-            .count(count)
-            .build()
+        Self::new().code(code).category(0).count(count).build()
     }
 
     /// 1分钟线（快捷方法）
@@ -342,11 +322,7 @@ impl<'a> KlineBuilder<'a> {
     /// let kline = KlineBuilder::min1("600000", 100).unwrap();
     /// ```
     pub fn min1(code: &'a str, count: u16) -> Result<Kline<'a>, String> {
-        Self::new()
-            .code(code)
-            .category(7)
-            .count(count)
-            .build()
+        Self::new().code(code).category(7).count(count).build()
     }
 
     /// 周线（快捷方法）
@@ -359,11 +335,7 @@ impl<'a> KlineBuilder<'a> {
     /// let kline = KlineBuilder::weekly("600000", 100).unwrap();
     /// ```
     pub fn weekly(code: &'a str, count: u16) -> Result<Kline<'a>, String> {
-        Self::new()
-            .code(code)
-            .category(5)
-            .count(count)
-            .build()
+        Self::new().code(code).category(5).count(count).build()
     }
 
     /// 月线（快捷方法）
@@ -376,11 +348,7 @@ impl<'a> KlineBuilder<'a> {
     /// let kline = KlineBuilder::monthly("600000", 100).unwrap();
     /// ```
     pub fn monthly(code: &'a str, count: u16) -> Result<Kline<'a>, String> {
-        Self::new()
-            .code(code)
-            .category(6)
-            .count(count)
-            .build()
+        Self::new().code(code).category(6).count(count).build()
     }
 }
 
@@ -408,40 +376,28 @@ mod tests {
 
     #[test]
     fn test_builder_defaults() {
-        let kline = KlineBuilder::new()
-            .code("600000")
-            .build()
-            .unwrap();
+        let kline = KlineBuilder::new().code("600000").build().unwrap();
 
         // 检查默认值
         assert_eq!(kline.code, "600000");
-        assert_eq!(kline.category, 9);  // 默认日线
-        assert_eq!(kline.count, 100);   // 默认100条
-        assert_eq!(kline.start, 0);     // 默认从0开始
+        assert_eq!(kline.category, 9); // 默认日线
+        assert_eq!(kline.count, 100); // 默认100条
+        assert_eq!(kline.start, 0); // 默认从0开始
     }
 
     #[test]
     fn test_builder_auto_market() {
         // 上海市场（6开头）
-        let kline1 = KlineBuilder::new()
-            .code("600000")
-            .build()
-            .unwrap();
-        assert_eq!(kline1.market, 1);  // 上海
+        let kline1 = KlineBuilder::new().code("600000").build().unwrap();
+        assert_eq!(kline1.market, 1); // 上海
 
         // 深圳市场（0开头）
-        let kline2 = KlineBuilder::new()
-            .code("000001")
-            .build()
-            .unwrap();
-        assert_eq!(kline2.market, 0);  // 深圳
+        let kline2 = KlineBuilder::new().code("000001").build().unwrap();
+        assert_eq!(kline2.market, 0); // 深圳
 
         // 创业板（3开头）
-        let kline3 = KlineBuilder::new()
-            .code("300001")
-            .build()
-            .unwrap();
-        assert_eq!(kline3.market, 0);  // 深圳
+        let kline3 = KlineBuilder::new().code("300001").build().unwrap();
+        assert_eq!(kline3.market, 0); // 深圳
     }
 
     #[test]
@@ -488,10 +444,7 @@ mod tests {
 
     #[test]
     fn test_builder_count_too_large() {
-        let result = KlineBuilder::new()
-            .code("600000")
-            .count(801)
-            .build();
+        let result = KlineBuilder::new().code("600000").count(801).build();
 
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "count 参数不能超过 800");

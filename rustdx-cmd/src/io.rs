@@ -1,10 +1,10 @@
 use crate::cmd::DayCmd;
-use eyre::{anyhow, Result};
+use eyre::{Result, anyhow};
+use rustdx_cmd::fetch_code::StockList;
 use rustdx_complete::file::{
     day::fq::Day,
     gbbq::{Factor, Gbbq},
 };
-use rustdx_cmd::fetch_code::StockList;
 use std::{
     fs::{self, File},
     io::{self, Write},
@@ -214,7 +214,10 @@ pub fn insert_clickhouse(output: &impl AsRef<Path>, table: &str, keep: bool) -> 
         .output()?;
     if result.status.success() {
         info!("成功插入数据到 clickhouse 数据库");
-        debug!("clickhouse 返回结果：{}", String::from_utf8_lossy(&result.stdout));
+        debug!(
+            "clickhouse 返回结果：{}",
+            String::from_utf8_lossy(&result.stdout)
+        );
     } else {
         error!(
             "插入数据到 clickhouse 数据库时遇到：{}",
@@ -341,7 +344,7 @@ fn keep_csv(fname: &impl AsRef<Path>, keep: bool) -> io::Result<()> {
 
 /// 读取本地 xls(x) 文件
 pub fn read_xlsx(path: &str, col: usize, prefix: &str) -> Option<StockList> {
-    use calamine::{open_workbook_auto, Data, Reader};
+    use calamine::{Data, Reader, open_workbook_auto};
     let mut workbook = open_workbook_auto(path).ok()?;
     let format_ = |x: &str| format!("{}{}", crate::cmd::auto_prefix(prefix, x), x);
     // 每个单元格被解析的类型可能会不一样，所以把股票代码统一转化成字符型

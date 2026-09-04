@@ -59,13 +59,18 @@ fn stocklist() {
     assert!(lsz > 2000, "深市股票数异常: {lsz}");
 
     // 代码格式断言
-    assert!(sh1.iter().all(|s| s.starts_with("sh60")), "沪市主板代码前缀异常");
     assert!(
-        sh8.iter().all(|s| s.starts_with("sh688") || s.starts_with("sh689")),
+        sh1.iter().all(|s| s.starts_with("sh60")),
+        "沪市主板代码前缀异常"
+    );
+    assert!(
+        sh8.iter()
+            .all(|s| s.starts_with("sh688") || s.starts_with("sh689")),
         "科创板代码前缀异常（688/689，689 为 CDR 存托凭证）"
     );
     assert!(
-        sz.iter().all(|s| s.starts_with("sz00") || s.starts_with("sz30")),
+        sz.iter()
+            .all(|s| s.starts_with("sz00") || s.starts_with("sz30")),
         "深市代码前缀异常"
     );
 }

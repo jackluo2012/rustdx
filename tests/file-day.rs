@@ -43,9 +43,14 @@ impl Day {
         }
     }
 
-    pub fn from_file_into_vec<P: AsRef<Path>>(code: u32, p: P) -> rustdx_complete::Result<Vec<Day>> {
+    pub fn from_file_into_vec<P: AsRef<Path>>(
+        code: u32,
+        p: P,
+    ) -> rustdx_complete::Result<Vec<Day>> {
         Ok(std::fs::read(p)?
-            .as_chunks::<32>().0.iter()
+            .as_chunks::<32>()
+            .0
+            .iter()
             .map(|b| Self::from_bytes(code, b))
             .collect())
     }
@@ -58,7 +63,9 @@ type Result<T> = std::result::Result<T, Error>;
 fn day() -> Result<()> {
     let path = "assets/sz000001.day";
     let day1 = Day::from_file_into_vec(1, path)?;
-    let day2 = write_to_csv(rustdx_complete::file::day::Day::from_file_into_vec(1, path)?)?;
+    let day2 = write_to_csv(rustdx_complete::file::day::Day::from_file_into_vec(
+        1, path,
+    )?)?;
     // insta::assert_yaml_snapshot!("serde-type", day1);
     assert_eq!(write_to_csv(day1)?, day2);
     insta::assert_debug_snapshot!("serde-type-csv-string", day2);

@@ -1,5 +1,5 @@
 use crate::bytes_helper::{u16_from_le_bytes, u32_from_le_bytes};
-use crate::tcp::{helper::price, Tdx};
+use crate::tcp::{Tdx, helper::price};
 
 /// 获取股票实时行情快照。对应于 pytdx 中的 hq.get_security_quotes、GetSecurityQuotesCmd。
 ///
@@ -100,14 +100,14 @@ impl<'a> Tdx for SecurityQuotes<'a> {
     ///   - 20-21: H (stock_count)
     /// - 之后每7字节：一只股票 (1字节market + 6字节code)
     const SEND: &'static [u8] = &[
-        0x0c, 0x01,                   // H: 0x010c = 268 (2 bytes)
-        0x20, 0x63, 0x00, 0x02,       // I: 0x02006320 (4 bytes)
-        0x00, 0x00,                   // H: pkg_len1 (占位符, 2 bytes)
-        0x00, 0x00,                   // H: pkg_len2 (占位符, 2 bytes)
-        0x3e, 0x05, 0x05, 0x00,       // I: 0x0005053e (4 bytes)
-        0x00, 0x00, 0x00, 0x00,       // I: 0 (4 bytes)
-        0x00, 0x00,                   // H: 0 (2 bytes)
-        0x01, 0x00,                   // H: stock_count (占位符，默认1, 2 bytes)
+        0x0c, 0x01, // H: 0x010c = 268 (2 bytes)
+        0x20, 0x63, 0x00, 0x02, // I: 0x02006320 (4 bytes)
+        0x00, 0x00, // H: pkg_len1 (占位符, 2 bytes)
+        0x00, 0x00, // H: pkg_len2 (占位符, 2 bytes)
+        0x3e, 0x05, 0x05, 0x00, // I: 0x0005053e (4 bytes)
+        0x00, 0x00, 0x00, 0x00, // I: 0 (4 bytes)
+        0x00, 0x00, // H: 0 (2 bytes)
+        0x01, 0x00, // H: stock_count (占位符，默认1, 2 bytes)
     ];
 
     const TAG: &'static str = "股票行情快照";

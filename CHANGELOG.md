@@ -2,6 +2,49 @@
 
 ## [Unreleased]
 
+## v1.1.0 (2026-09-04)
+
+### 🎉 对标 mootdx 补齐核心功能 + 行情解析全面修复
+
+**数据正确性（SecurityQuotes 行情，pytdx 同连接抓包逐字段验证）**
+- ✅ 昨收/开/高/低/五档价格按 `(当前价 + 差值)/100` 还原（旧版输出差值或 0）
+- ✅ 涨跌幅真实计算（旧版输出 655% 乱码），涨速字段改有符号 i16
+- ✅ 成交量单位修正为手（旧版多除 100）；新增现量/外盘/内盘/服务器时间字段
+- ✅ 破解服务器时间编码（HHMM + 秒×10000/60 十进制拼接）
+- ✅ 真实抓包字节的回归测试，协议变化可第一时间发现
+
+**新功能（全部经交易时段实盘验证）**
+- ✅ `IndexKline` 指数K线（含上涨/下跌家数）
+- ✅ `HistoryMinuteTime` 历史分时（实测 240 点完整）
+- ✅ `HistoryTransaction` 历史逐笔成交
+- ✅ `get_block_info` 板块文件：逆向出固定槽位布局，实测 269 个概念板块
+  41147 条成分记录，**取代旧版硬编码且张冠李戴的概念数据**
+- ✅ `CompanyInfoCategory/Content` F10 公司资料
+- ✅ `Client` 高层 API（对标 mootdx StdQuotes）+ `k()` 日期区间拉K线
+- ✅ `market_of` 代码自动推断市场、`stocks` 全量列表自动分页
+
+**连接可靠性（对标 mootdx bestip/heartbeat/auto_retry）**
+- ✅ 服务器列表更新为 mootdx 维护的 40 台（原 19 台仅 2 台存活，新列表 40/40 可连）
+- ✅ 协议级故障转移（TCP 可连≠行情可用）、`TcpConfig` 超时与指定服务器
+- ✅ `Tcp::heartbeat` 心跳保活、`Tcp::retry` 自动重连重试、`Tcp::reconnect` 重连
+- ✅ 修复 16 字节响应头单次读取隐患、财务信息边界检查（旧版会 panic）
+
+**Bug 修复**
+- ✅ `Xdxr` 请求字节布局修复（market 写错位置导致任意股票返回 0 条，实测 80 条）
+- ✅ 分时防御性解析：协议异常返回空数据而非垃圾，消除 panic 风险
+- ✅ rustdx-cmd 编译修复（`day`/`east` 恢复可用）、东财请求自动重试
+- ✅ `TradingCalendar::is_trading_time` 时区偏差
+
+**依赖升级与现代化**
+- ✅ lazy_static 移除（标准库 const 构造）、thiserror 2、miniz_oxide 0.9
+- ✅ ureq 3、calamine 0.36、csv 1.4、tabled 0.21、subprocess 移除（std::process）
+- ✅ edition 2024、移除 eprintln 副作用、统一错误处理
+
+**文档与工程**
+- ✅ README 全面重写（功能对照表、真实示例、已知问题诚实声明）
+- ✅ 197 个测试全部通过、clippy 零警告
+- ✅ 仓库整理：14 个过时文档归档 docs/archive/，pytdx 对照脚本入 scripts/
+
 ## v1.0.1 (2026-09-04)
 
 ### 🔧 构建与发布基线修复

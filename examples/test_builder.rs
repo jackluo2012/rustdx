@@ -35,12 +35,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("✅ 构建成功：");
     println!("   股票代码: {}", kline1.code);
-    println!("   市场: {} ({}{})",
+    println!(
+        "   市场: {} ({}{})",
         kline1.market,
-        if kline1.market == 1 { "上海" } else { "深圳" },
-        if kline1.code.starts_with('6') { "主板" } else { "" }
+        if kline1.market == 1 {
+            "上海"
+        } else {
+            "深圳"
+        },
+        if kline1.code.starts_with('6') {
+            "主板"
+        } else {
+            ""
+        }
     );
-    println!("   K线类型: {} ({})",
+    println!(
+        "   K线类型: {} ({})",
         kline1.category,
         match kline1.category {
             0 => "5分钟",
@@ -66,15 +76,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("    .code(\"000001\")");
     println!("    .build()?;\n");
 
-    let kline2 = KlineBuilder::new()
-        .code("000001")
-        .build()?;
+    let kline2 = KlineBuilder::new().code("000001").build()?;
 
     println!("✅ 构建成功（自动使用默认值）：");
     println!("   股票代码: {}", kline2.code);
-    println!("   市场: {} (自动识别: {})",
+    println!(
+        "   市场: {} (自动识别: {})",
         kline2.market,
-        if kline2.market == 1 { "上海" } else { "深圳" }
+        if kline2.market == 1 {
+            "上海"
+        } else {
+            "深圳"
+        }
     );
     println!("   K线类型: {} (默认: 日线)", kline2.category);
     println!("   起始位置: {} (默认: 0)", kline2.start);
@@ -124,11 +137,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Builder 模式支持流畅的链式调用：\n");
 
     let kline4 = KlineBuilder::new()
-        .code("300001")      // 创业板
-        .market(0)           // 深圳
-        .category(9)         // 日线
-        .start(10)           // 从第10条开始
-        .count(50)           // 获取50条
+        .code("300001") // 创业板
+        .market(0) // 深圳
+        .category(9) // 日线
+        .start(10) // 从第10条开始
+        .count(50) // 获取50条
         .build()?;
 
     println!("✅ 构建成功：");
@@ -206,7 +219,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     bar.high,
                     bar.low,
                     bar.close,
-                    bar.vol / 10000.0  // 转换为万手
+                    bar.vol / 10000.0 // 转换为万手
                 );
             }
         }

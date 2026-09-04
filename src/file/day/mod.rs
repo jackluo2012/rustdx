@@ -77,7 +77,8 @@ impl Day {
     /// 一次性以**同步**方式读取单个 `*.day` 文件所有数据，然后转化成 Vec。
     pub fn from_file_into_vec<P: AsRef<Path>>(code: u32, p: P) -> crate::Result<Vec<Day>> {
         Ok(std::fs::read(p)?
-            .as_chunks::<32>().0
+            .as_chunks::<32>()
+            .0
             .iter()
             .map(|b| Self::from_bytes(code, b))
             .collect())

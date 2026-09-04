@@ -7,8 +7,8 @@
 //! cargo run --example test_trading_calendar
 //! ```
 
+use chrono::{Datelike, NaiveDate, NaiveDateTime};
 use rustdx_complete::calendar::TradingCalendar;
-use chrono::{NaiveDate, NaiveDateTime, Datelike};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("📅 rustdx 中国A股交易日历示例\n");
@@ -33,9 +33,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for date in &dates {
         let is_trading = TradingCalendar::is_trading_day(date);
         let weekday = format!("{:?}", date.weekday());
-        let status = if is_trading { "✅ 是交易日" } else { "❌ 非交易日" };
-        println!("  {:04}-{:02}-{:02} ({}) {}",
-            date.year(), date.month(), date.day(), weekday, status);
+        let status = if is_trading {
+            "✅ 是交易日"
+        } else {
+            "❌ 非交易日"
+        };
+        println!(
+            "  {:04}-{:02}-{:02} ({}) {}",
+            date.year(),
+            date.month(),
+            date.day(),
+            weekday,
+            status
+        );
     }
 
     // ========================================
@@ -58,7 +68,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for time_str in &times {
         let dt = NaiveDateTime::parse_from_str(time_str, "%Y-%m-%d %H:%M:%S").unwrap();
         let is_trading_time = TradingCalendar::is_trading_time(&dt);
-        let status = if is_trading_time { "✅ 交易中" } else { "❌ 非交易时间" };
+        let status = if is_trading_time {
+            "✅ 交易中"
+        } else {
+            "❌ 非交易时间"
+        };
         println!("  {} - {}", time_str, status);
     }
 
@@ -71,8 +85,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let date = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(); // 周一
     let prev = TradingCalendar::previous_trading_day(&date);
-    println!("{} 的前一个交易日: {:04}-{:02}-{:02}\n",
-        date, prev.year(), prev.month(), prev.day());
+    println!(
+        "{} 的前一个交易日: {:04}-{:02}-{:02}\n",
+        date,
+        prev.year(),
+        prev.month(),
+        prev.day()
+    );
 
     // ========================================
     // 示例 4: 获取后一个交易日
@@ -83,8 +102,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let date = NaiveDate::from_ymd_opt(2025, 1, 3).unwrap(); // 周五
     let next = TradingCalendar::next_trading_day(&date);
-    println!("{} 的后一个交易日: {:04}-{:02}-{:02}\n",
-        date, next.year(), next.month(), next.day());
+    println!(
+        "{} 的后一个交易日: {:04}-{:02}-{:02}\n",
+        date,
+        next.year(),
+        next.month(),
+        next.day()
+    );
 
     // ========================================
     // 示例 5: 获取最近N个交易日
@@ -98,8 +122,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("从 {} 开始的10个交易日：\n", start);
     for (i, date) in trading_days.iter().enumerate() {
-        println!("  {}. {:04}-{:02}-{:02} ({:?})",
-            i + 1, date.year(), date.month(), date.day(), date.weekday());
+        println!(
+            "  {}. {:04}-{:02}-{:02} ({:?})",
+            i + 1,
+            date.year(),
+            date.month(),
+            date.day(),
+            date.weekday()
+        );
     }
 
     // ========================================
@@ -125,8 +155,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 
     let today = TradingCalendar::current_trading_day();
-    println!("当前交易日: {:04}-{:02}-{:02}\n",
-        today.year(), today.month(), today.day());
+    println!(
+        "当前交易日: {:04}-{:02}-{:02}\n",
+        today.year(),
+        today.month(),
+        today.day()
+    );
 
     // ========================================
     // 示例 8: 获取市场交易日
@@ -136,9 +170,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 
     let market_day = TradingCalendar::market_trading_day();
-    println!("市场交易日: {:04}-{:02}-{:02}",
-        market_day.year(), market_day.month(), market_day.day());
-    println!("说明：如果今天在交易时间前，返回上一个交易日；否则返回今天", );
+    println!(
+        "市场交易日: {:04}-{:02}-{:02}",
+        market_day.year(),
+        market_day.month(),
+        market_day.day()
+    );
+    println!("说明：如果今天在交易时间前，返回上一个交易日；否则返回今天",);
 
     println!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!("✅ 交易日历示例完成！");

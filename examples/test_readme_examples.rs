@@ -1,9 +1,11 @@
 #!/usr/bin/env rustx
+use rustdx_complete::tcp::stock::{
+    FinanceInfo, Kline, MinuteTime, SecurityList, SecurityQuotes, Transaction,
+};
 /**
 测试 README 文档中的所有示例代码
 */
 use rustdx_complete::tcp::{Tcp, Tdx};
-use rustdx_complete::tcp::stock::{SecurityQuotes, Kline, FinanceInfo, MinuteTime, Transaction, SecurityList};
 
 fn main() {
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -76,8 +78,8 @@ fn test_security_quotes() -> Result<(), Box<dyn std::error::Error>> {
 
     // 获取多只股票的实时行情
     let mut quotes = SecurityQuotes::new(vec![
-        (0, "000001"),  // 平安银行（深市）
-        (1, "600000"),  // 浦发银行（沪市）
+        (0, "000001"), // 平安银行（深市）
+        (1, "600000"), // 浦发银行（沪市）
     ]);
 
     quotes.recv_parsed(&mut tcp)?;
@@ -94,15 +96,18 @@ fn test_index_quotes() -> Result<(), Box<dyn std::error::Error>> {
 
     // 获取主要指数行情
     let mut quotes = SecurityQuotes::new(vec![
-        (1, "000001"),  // 上证指数
-        (0, "399001"),  // 深证成指
-        (1, "000300"),  // 沪深300
+        (1, "000001"), // 上证指数
+        (0, "399001"), // 深证成指
+        (1, "000300"), // 沪深300
     ]);
 
     quotes.recv_parsed(&mut tcp)?;
 
     for quote in quotes.result() {
-        println!("{}: {} (涨跌: {}%)", quote.code, quote.price, quote.change_percent);
+        println!(
+            "{}: {} (涨跌: {}%)",
+            quote.code, quote.price, quote.change_percent
+        );
     }
 
     Ok(())
@@ -115,8 +120,10 @@ fn test_kline() -> Result<(), Box<dyn std::error::Error>> {
     kline.recv_parsed(&mut tcp)?;
 
     for bar in kline.result() {
-        println!("{:?} : 开({}) 高({}) 低({}) 收({})",
-            bar.dt, bar.open, bar.high, bar.low, bar.close);
+        println!(
+            "{:?} : 开({}) 高({}) 低({}) 收({})",
+            bar.dt, bar.open, bar.high, bar.low, bar.close
+        );
     }
 
     Ok(())
@@ -157,8 +164,10 @@ fn test_transaction() -> Result<(), Box<dyn std::error::Error>> {
     transaction.recv_parsed(&mut tcp)?;
 
     for data in transaction.result().iter().take(5) {
-        println!("价格={} 成交量={} 买卖方向={}",
-            data.price, data.vol, data.buyorsell);
+        println!(
+            "价格={} 成交量={} 买卖方向={}",
+            data.price, data.vol, data.buyorsell
+        );
     }
 
     // 安全地获取最后一笔成交
@@ -179,8 +188,7 @@ fn test_security_list() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("股票列表（前5只）：");
     for (i, stock) in list.result().iter().take(5).enumerate() {
-        println!("{}: 代码={}, 名称={}",
-            i + 1, stock.code, stock.name);
+        println!("{}: 代码={}, 名称={}", i + 1, stock.code, stock.name);
     }
 
     println!("本批次获取: {} 只股票", list.result().len());

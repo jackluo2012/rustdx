@@ -1,9 +1,9 @@
 #!/usr/bin/env rustx
+use rustdx_complete::tcp::stock::Transaction;
 /**
 测试Transaction功能，获取股票成交明细
 */
 use rustdx_complete::tcp::{Tcp, Tdx};
-use rustdx_complete::tcp::stock::Transaction;
 
 fn main() {
     println!("🚀 测试Transaction功能\n");
@@ -47,17 +47,28 @@ fn test_transaction(tcp: &mut Tcp) {
                         8 => "中性",
                         _ => "未知",
                     };
-                    println!("      {} {:>7.2} {:>8} {:>6} {}",
-                        data.time, data.price, data.vol, data.num, buyorsell_text);
+                    println!(
+                        "      {} {:>7.2} {:>8} {:>6} {}",
+                        data.time, data.price, data.vol, data.num, buyorsell_text
+                    );
                 }
 
                 // 统计买卖方向
-                let buy_count = transaction.result().iter()
-                    .filter(|d| d.buyorsell == 0).count();
-                let sell_count = transaction.result().iter()
-                    .filter(|d| d.buyorsell == 1).count();
-                let neutral_count = transaction.result().iter()
-                    .filter(|d| d.buyorsell == 8).count();
+                let buy_count = transaction
+                    .result()
+                    .iter()
+                    .filter(|d| d.buyorsell == 0)
+                    .count();
+                let sell_count = transaction
+                    .result()
+                    .iter()
+                    .filter(|d| d.buyorsell == 1)
+                    .count();
+                let neutral_count = transaction
+                    .result()
+                    .iter()
+                    .filter(|d| d.buyorsell == 8)
+                    .count();
 
                 println!("\n   📈 统计信息:");
                 println!("      买入: {} 笔", buy_count);
@@ -90,8 +101,10 @@ fn test_transaction(tcp: &mut Tcp) {
                         8 => "中性",
                         _ => "未知",
                     };
-                    println!("      {} {:>7.2} {:>8} {:>6} {}",
-                        data.time, data.price, data.vol, data.num, buyorsell_text);
+                    println!(
+                        "      {} {:>7.2} {:>8} {:>6} {}",
+                        data.time, data.price, data.vol, data.num, buyorsell_text
+                    );
                 }
             }
         }
@@ -120,8 +133,10 @@ fn test_transaction(tcp: &mut Tcp) {
                         8 => "中性",
                         _ => "未知",
                     };
-                    println!("      {} {:>7.2} {:>8} {:>6} {}",
-                        data.time, data.price, data.vol, data.num, buyorsell_text);
+                    println!(
+                        "      {} {:>7.2} {:>8} {:>6} {}",
+                        data.time, data.price, data.vol, data.num, buyorsell_text
+                    );
                 }
             }
         }

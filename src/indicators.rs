@@ -560,10 +560,7 @@ pub fn kdj(
     }
 
     // 计算 K 值（RSV 的移动平均）
-    let k_values: Vec<f64> = rsv_values
-        .iter()
-        .filter_map(|&v| v)
-        .collect();
+    let k_values: Vec<f64> = rsv_values.iter().filter_map(|&v| v).collect();
 
     let k_ema = if k_values.is_empty() {
         vec![0.0; len]
@@ -641,8 +638,8 @@ mod tests {
     #[test]
     fn test_macd() {
         let data = vec![
-            10.0, 10.5, 11.0, 10.8, 11.2, 11.5, 11.3, 11.8,
-            12.0, 11.9, 12.2, 12.5, 12.3, 12.8, 13.0,
+            10.0, 10.5, 11.0, 10.8, 11.2, 11.5, 11.3, 11.8, 12.0, 11.9, 12.2, 12.5, 12.3, 12.8,
+            13.0,
         ];
 
         let result = macd(&data, 12, 26, 9);
@@ -660,8 +657,8 @@ mod tests {
     #[test]
     fn test_rsi() {
         let data = vec![
-            10.0, 10.5, 11.0, 10.8, 11.2, 11.5, 11.3, 11.8,
-            12.0, 11.9, 12.2, 12.5, 12.3, 12.8, 13.0,
+            10.0, 10.5, 11.0, 10.8, 11.2, 11.5, 11.3, 11.8, 12.0, 11.9, 12.2, 12.5, 12.3, 12.8,
+            13.0,
         ];
 
         let period = 14;
@@ -670,7 +667,10 @@ mod tests {
         assert_eq!(result.len(), data.len());
 
         // 前面应该有 None
-        assert_eq!(result[..period].iter().filter(|&&v| v.is_none()).count(), period);
+        assert_eq!(
+            result[..period].iter().filter(|&&v| v.is_none()).count(),
+            period
+        );
 
         // 后面应该有值
         let has_values = result[period..].iter().any(|&v| v.is_some());
@@ -702,8 +702,8 @@ mod tests {
     #[test]
     fn test_bollinger_bands() {
         let data = vec![
-            10.0, 10.5, 11.0, 10.8, 11.2, 11.5, 11.3, 11.8,
-            12.0, 11.9, 12.2, 12.5, 12.3, 12.8, 13.0,
+            10.0, 10.5, 11.0, 10.8, 11.2, 11.5, 11.3, 11.8, 12.0, 11.9, 12.2, 12.5, 12.3, 12.8,
+            13.0,
         ];
 
         let result = bollinger_bands(&data, 5, 2.0);
@@ -719,7 +719,9 @@ mod tests {
 
         // 检查上轨 >= 中轨 >= 下轨
         for i in 0..data.len() {
-            if let (Some(u), Some(m), Some(l)) = (result.upper[i], result.middle[i], result.lower[i]) {
+            if let (Some(u), Some(m), Some(l)) =
+                (result.upper[i], result.middle[i], result.lower[i])
+            {
                 assert!(u >= m);
                 assert!(m >= l);
             }

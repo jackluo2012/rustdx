@@ -26,8 +26,9 @@ pub fn get(page_size: u16, page_number: u16) -> Result<String> {
             }
         }
     }
-    Err(eyre::eyre!(last_err.unwrap()))
-        .wrap_err_with(|| format!("获取东财股票数据失败（已重试 {MAX_RETRIES} 次），网址为\n`{url:?}`"))
+    Err(eyre::eyre!(last_err.unwrap())).wrap_err_with(|| {
+        format!("获取东财股票数据失败（已重试 {MAX_RETRIES} 次），网址为\n`{url:?}`")
+    })
 }
 
 pub fn parse(text: &str) -> Result<EastMarket> {

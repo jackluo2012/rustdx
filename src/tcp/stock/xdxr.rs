@@ -76,13 +76,20 @@ impl<'a> Tdx for Xdxr<'a> {
             self.data.resize_with(count, XdxrData::default);
             self.data
                 .iter_mut()
-                .zip(v[11..].as_chunks::<29>().0.iter().map(|c| XdxrData::parse(c)))
+                .zip(
+                    v[11..]
+                        .as_chunks::<29>()
+                        .0
+                        .iter()
+                        .map(|c| XdxrData::parse(c)),
+                )
                 .map(|(d, x)| *d = x)
                 .last();
         } else {
             self.data = Vec::with_capacity(count);
             v[11..]
-                .as_chunks::<29>().0
+                .as_chunks::<29>()
+                .0
                 .iter()
                 .map(|c| XdxrData::parse(c))
                 .map(|x| self.data.push(x))
@@ -137,7 +144,7 @@ impl XdxrData {
     /// ## 注意
     /// `bytes` 为长度 29 的 slice
     pub fn parse(bytes: &[u8]) -> XdxrData {
-        use crate::bytes_helper::{f32_from_le_bytes, u32_from_le_bytes, u8_from_le_bytes};
+        use crate::bytes_helper::{f32_from_le_bytes, u8_from_le_bytes, u32_from_le_bytes};
         fn f32_(b: &[u8], p: usize) -> f32 {
             let tmp = u32_from_le_bytes(b, p);
             if tmp == 0 {

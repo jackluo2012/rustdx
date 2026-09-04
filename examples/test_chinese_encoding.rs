@@ -1,9 +1,9 @@
 #!/usr/bin/env rustx
+use rustdx_complete::tcp::stock::SecurityList;
 /**
 测试中文编码是否正确显示
 */
 use rustdx_complete::tcp::{Tcp, Tdx};
-use rustdx_complete::tcp::stock::SecurityList;
 
 fn main() {
     println!("🔍 测试中文编码显示\n");

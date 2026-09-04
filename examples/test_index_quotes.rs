@@ -1,10 +1,10 @@
 #!/usr/bin/env rustx
+use rustdx_complete::tcp::stock::SecurityQuotes;
 /**
 测试指数行情功能
 使用SecurityQuotes获取上证指数、深证成指等实时行情数据
 */
 use rustdx_complete::tcp::{Tcp, Tdx};
-use rustdx_complete::tcp::stock::SecurityQuotes;
 
 fn main() {
     println!("🚀 测试指数行情功能\n");

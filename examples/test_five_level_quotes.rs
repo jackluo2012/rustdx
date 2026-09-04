@@ -1,9 +1,9 @@
 #!/usr/bin/env rustx
+use rustdx_complete::tcp::stock::SecurityQuotes;
 /**
 测试五档买卖盘数据完整性
 */
 use rustdx_complete::tcp::{Tcp, Tdx};
-use rustdx_complete::tcp::stock::SecurityQuotes;
 
 fn main() {
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -21,9 +21,9 @@ fn test_five_level_quotes() -> Result<(), Box<dyn std::error::Error>> {
 
     // 获取多只股票的实时行情
     let mut quotes = SecurityQuotes::new(vec![
-        (0, "000001"),  // 平安银行（深市）
-        (1, "600000"),  // 浦发银行（沪市）
-        (1, "600036"),  // 招商银行（沪市）
+        (0, "000001"), // 平安银行（深市）
+        (1, "600000"), // 浦发银行（沪市）
+        (1, "600036"), // 招商银行（沪市）
     ]);
 
     quotes.recv_parsed(&mut tcp)?;
@@ -50,8 +50,8 @@ fn test_five_level_quotes() -> Result<(), Box<dyn std::error::Error>> {
         println!("卖五: {:.2} × {:.0} 手", quote.ask5, quote.ask5_vol);
 
         // 验证数据有效性
-        let has_valid_data = quote.bid1 > 0.0 && quote.ask1 > 0.0
-            && quote.bid1_vol > 0.0 && quote.ask1_vol > 0.0;
+        let has_valid_data =
+            quote.bid1 > 0.0 && quote.ask1 > 0.0 && quote.bid1_vol > 0.0 && quote.ask1_vol > 0.0;
 
         if has_valid_data {
             println!("\n✅ 数据完整有效");

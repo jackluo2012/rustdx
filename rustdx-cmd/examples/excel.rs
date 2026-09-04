@@ -1,4 +1,4 @@
-use calamine::{open_workbook_auto, Data, Reader, Sheets};
+use calamine::{Data, Reader, Sheets, open_workbook_auto};
 use eyre::Result;
 use std::time::Instant;
 
@@ -21,13 +21,23 @@ fn main() -> Result<()> {
 /// Sse 股票列表数据暂时无法直接获取到，而且获取到的 xls 签名不是 ole ，无法解析。
 /// 所以只能手动下载，用 excel 保存为 xlsx 或 xls 。
 fn get_xlsx(ex: Exchange) -> Result<()> {
-    let (url, fname) = match ex{
-        Exchange::Szse=>("http://www.szse.cn/api/report/ShowReport?SHOWTYPE=xlsx&CATALOGID=1110&TABKEY=tab1&random=0.8587844061443386","../assets/xlsx/szse.xlsx"),
-        Exchange::Sse => ("http://query.sse.com.cn/security/stock/downloadStockListFile.do?csrcCode=&stockCode=&areaName=&stockType=1", "../assets/xlsx/sse.xls")
+    let (url, fname) = match ex {
+        Exchange::Szse => (
+            "http://www.szse.cn/api/report/ShowReport?SHOWTYPE=xlsx&CATALOGID=1110&TABKEY=tab1&random=0.8587844061443386",
+            "../assets/xlsx/szse.xlsx",
+        ),
+        Exchange::Sse => (
+            "http://query.sse.com.cn/security/stock/downloadStockListFile.do?csrcCode=&stockCode=&areaName=&stockType=1",
+            "../assets/xlsx/sse.xls",
+        ),
     };
     let buf = &mut Vec::with_capacity(1 << 20);
     use std::io::Read;
-    ureq::get(url).call()?.body_mut().as_reader().read_to_end(buf)?;
+    ureq::get(url)
+        .call()?
+        .body_mut()
+        .as_reader()
+        .read_to_end(buf)?;
     std::fs::write(fname, buf)?;
     Ok(())
 }

@@ -81,8 +81,8 @@ impl<'a> Tdx for IndexKline<'a> {
     ///
     /// 价格为相对前一根收盘价的差值累加（÷1000），与股票K线相同。
     fn parse(&mut self, v: Vec<u8>) {
-        use crate::tcp::helper::{datetime, price, vol_amount};
         use crate::bytes_helper::{u16_from_le_bytes, u32_from_le_bytes};
+        use crate::tcp::helper::{datetime, price, vol_amount};
 
         if v.len() < 2 {
             self.response = v;

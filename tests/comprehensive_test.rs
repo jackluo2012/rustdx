@@ -1,3 +1,7 @@
+use rustdx_complete::tcp::stock::{
+    FinanceInfo, Kline, MinuteTime, SecurityList, SecurityQuotes, Transaction, get_concept_stocks,
+    get_industry_name, get_province_name,
+};
 /**
  * RustDX 开盘日全面测试套件
  *
@@ -10,10 +14,6 @@
  * cargo test --test comprehensive_test -- --live
  */
 use rustdx_complete::tcp::{Tcp, Tdx};
-use rustdx_complete::tcp::stock::{
-    SecurityQuotes, Kline, FinanceInfo, MinuteTime, Transaction,
-    SecurityList, get_industry_name, get_province_name, get_concept_stocks
-};
 
 // ============================================================================
 // 测试结果统计结构
@@ -51,8 +51,16 @@ impl TestResults {
         println!("测试结果汇总");
         println!("{}", "=".repeat(60));
         println!("总测试数: {}", self.total);
-        println!("✅ 通过: {} ({:.1}%)", self.passed, (self.passed as f64 / self.total as f64) * 100.0);
-        println!("❌ 失败: {} ({:.1}%)", self.failed, (self.failed as f64 / self.total as f64) * 100.0);
+        println!(
+            "✅ 通过: {} ({:.1}%)",
+            self.passed,
+            (self.passed as f64 / self.total as f64) * 100.0
+        );
+        println!(
+            "❌ 失败: {} ({:.1}%)",
+            self.failed,
+            (self.failed as f64 / self.total as f64) * 100.0
+        );
         println!("⚠️  警告: {}", self.warnings);
 
         if !self.errors.is_empty() {
@@ -70,8 +78,7 @@ impl TestResults {
 // ============================================================================
 
 fn should_run_live_tests() -> bool {
-    std::env::var("RUSTDX_LIVE_TEST").is_ok() ||
-    std::env::args().any(|arg| arg.contains("--live"))
+    std::env::var("RUSTDX_LIVE_TEST").is_ok() || std::env::args().any(|arg| arg.contains("--live"))
 }
 
 fn get_current_time() -> String {
@@ -98,8 +105,10 @@ fn test_01_security_quotes_single() {
             match quotes.recv_parsed(&mut tcp) {
                 Ok(_) => {
                     for quote in quotes.result() {
-                        println!("  ✅ {}: {:.2}元 ({:.2}%)",
-                            quote.code, quote.price, quote.change_percent);
+                        println!(
+                            "  ✅ {}: {:.2}元 ({:.2}%)",
+                            quote.code, quote.price, quote.change_percent
+                        );
 
                         // 验证关键字段
                         if quote.price > 0.0 {
@@ -142,17 +151,57 @@ fn test_02_security_quotes_batch() {
         Ok(mut tcp) => {
             // 准备50只热门股票
             let stocks = vec![
-                (0, "000001"), (0, "000002"), (0, "000063"), (0, "000066"), (0, "000333"),
-                (0, "000338"), (0, "000651"), (0, "000725"), (0, "000858"), (0, "000876"),
-                (1, "600000"), (1, "600036"), (1, "600519"), (1, "600887"), (1, "600900"),
-                (1, "601012"), (1, "601066"), (1, "601318"), (1, "601398"), (1, "601857"),
-                (0, "002415"), (0, "002594"), (0, "300750"), (0, "300760"), (1, "688981"),
+                (0, "000001"),
+                (0, "000002"),
+                (0, "000063"),
+                (0, "000066"),
+                (0, "000333"),
+                (0, "000338"),
+                (0, "000651"),
+                (0, "000725"),
+                (0, "000858"),
+                (0, "000876"),
+                (1, "600000"),
+                (1, "600036"),
+                (1, "600519"),
+                (1, "600887"),
+                (1, "600900"),
+                (1, "601012"),
+                (1, "601066"),
+                (1, "601318"),
+                (1, "601398"),
+                (1, "601857"),
+                (0, "002415"),
+                (0, "002594"),
+                (0, "300750"),
+                (0, "300760"),
+                (1, "688981"),
                 // ... 更多股票
-                (1, "600030"), (1, "600048"), (1, "600276"), (1, "600690"), (1, "600837"),
-                (0, "000001"), (0, "000002"), (0, "000063"), (0, "000066"), (0, "000333"),
-                (0, "000338"), (0, "000651"), (0, "000725"), (0, "000858"), (0, "000876"),
-                (1, "600000"), (1, "600036"), (1, "600519"), (1, "600887"), (1, "600900"),
-                (1, "601012"), (1, "601066"), (1, "601318"), (1, "601398"), (1, "601857"),
+                (1, "600030"),
+                (1, "600048"),
+                (1, "600276"),
+                (1, "600690"),
+                (1, "600837"),
+                (0, "000001"),
+                (0, "000002"),
+                (0, "000063"),
+                (0, "000066"),
+                (0, "000333"),
+                (0, "000338"),
+                (0, "000651"),
+                (0, "000725"),
+                (0, "000858"),
+                (0, "000876"),
+                (1, "600000"),
+                (1, "600036"),
+                (1, "600519"),
+                (1, "600887"),
+                (1, "600900"),
+                (1, "601012"),
+                (1, "601066"),
+                (1, "601318"),
+                (1, "601398"),
+                (1, "601857"),
             ];
 
             let start = std::time::Instant::now();
@@ -214,11 +263,11 @@ fn test_03_index_quotes() {
     match Tcp::new() {
         Ok(mut tcp) => {
             let indices = vec![
-                (1, "000001"),  // 上证指数
-                (0, "399001"),  // 深证成指
-                (1, "000300"),  // 沪深300
-                (0, "399006"),  // 创业板指
-                (1, "000688"),  // 科创50
+                (1, "000001"), // 上证指数
+                (0, "399001"), // 深证成指
+                (1, "000300"), // 沪深300
+                (0, "399006"), // 创业板指
+                (1, "000688"), // 科创50
             ];
 
             let mut quotes = SecurityQuotes::new(indices);
@@ -226,15 +275,18 @@ fn test_03_index_quotes() {
                 Ok(_) => {
                     println!("  📊 主要指数行情:");
                     for quote in quotes.result() {
-                        println!("     {}: {:.2} ({:+.2}%)",
-                            quote.code, quote.price, quote.change_percent);
+                        println!(
+                            "     {}: {:.2} ({:+.2}%)",
+                            quote.code, quote.price, quote.change_percent
+                        );
                         results.record_pass();
                     }
 
                     if quotes.result().len() == 5 {
                         results.record_pass();
                     } else {
-                        results.record_fail(format!("期望5个指数，实际{}个", quotes.result().len()));
+                        results
+                            .record_fail(format!("期望5个指数，实际{}个", quotes.result().len()));
                     }
                 }
                 Err(e) => {
@@ -263,7 +315,7 @@ fn test_04_kline_data() {
         Ok(mut tcp) => {
             // 测试日K线
             println!("  📈 测试日K线数据");
-            let mut kline = Kline::new(1, "600000", 9, 0, 10);  // 浦发银行
+            let mut kline = Kline::new(1, "600000", 9, 0, 10); // 浦发银行
             match kline.recv_parsed(&mut tcp) {
                 Ok(_) => {
                     let count = kline.result().len();
@@ -272,8 +324,10 @@ fn test_04_kline_data() {
                     if count > 0 {
                         results.record_pass();
                         let bar = &kline.result()[0];
-                        println!("    最新: {:?} 开:{:.2} 高:{:.2} 低:{:.2} 收:{:.2}",
-                            bar.dt, bar.open, bar.high, bar.low, bar.close);
+                        println!(
+                            "    最新: {:?} 开:{:.2} 高:{:.2} 低:{:.2} 收:{:.2}",
+                            bar.dt, bar.open, bar.high, bar.low, bar.close
+                        );
 
                         // 验证数据合理性
                         if bar.high >= bar.low && bar.close > 0.0 {
@@ -324,9 +378,9 @@ fn test_05_finance_info() {
     match Tcp::new() {
         Ok(mut tcp) => {
             let stocks = vec![
-                (0, "000001"),  // 平安银行
-                (1, "600519"),  // 贵州茅台
-                (1, "300750"),  // 宁德时代（注意：市场代码错误，会失败）
+                (0, "000001"), // 平安银行
+                (1, "600519"), // 贵州茅台
+                (1, "300750"), // 宁德时代（注意：市场代码错误，会失败）
             ];
 
             for (market, code) in stocks {
@@ -391,13 +445,16 @@ fn test_06_minute_time_data() {
                         // 显示前3条和后3条
                         println!("  📊 分时数据示例:");
                         for (i, data) in minute.result().iter().take(3).enumerate() {
-                            println!("     {} 价格:{:.2} 量:{:.0}",
-                                i + 1, data.price, data.vol);
+                            println!("     {} 价格:{:.2} 量:{:.0}", i + 1, data.price, data.vol);
                         }
                         println!("     ...");
                         for (i, data) in minute.result().iter().rev().take(3).enumerate() {
-                            println!("     {} 价格:{:.2} 量:{:.0}",
-                                count - 2 + i, data.price, data.vol);
+                            println!(
+                                "     {} 价格:{:.2} 量:{:.0}",
+                                count - 2 + i,
+                                data.price,
+                                data.vol
+                            );
                         }
                     } else {
                         results.record_warning();
@@ -453,8 +510,10 @@ fn test_07_transaction_data() {
                                 1 => "卖",
                                 _ => "?",
                             };
-                            println!("     {} 价格:{:.2} 量:{:.0}手 {}",
-                                data.time, data.price, data.vol, direction);
+                            println!(
+                                "     {} 价格:{:.2} 量:{:.0}手 {}",
+                                data.time, data.price, data.vol, direction
+                            );
                         }
 
                         // 验证买卖方向统计
@@ -559,9 +618,9 @@ fn test_09_five_level_quotes() {
     match Tcp::new() {
         Ok(mut tcp) => {
             let test_stocks = vec![
-                (0, "000001"),  // 平安银行
-                (1, "600519"),  // 贵州茅台
-                (0, "300750"),  // 宁德时代
+                (0, "000001"), // 平安银行
+                (1, "600519"), // 贵州茅台
+                (0, "300750"), // 宁德时代
             ];
 
             for (market, code) in test_stocks {
@@ -571,18 +630,24 @@ fn test_09_five_level_quotes() {
                     Ok(_) => {
                         if let Some(quote) = quotes.result().first() {
                             // 验证五档买卖盘数据
-                            println!("    买一到买五: {:.2} {:.2} {:.2} {:.2} {:.2}",
-                                quote.bid1, quote.bid2, quote.bid3, quote.bid4, quote.bid5);
-                            println!("    卖一到卖五: {:.2} {:.2} {:.2} {:.2} {:.2}",
-                                quote.ask1, quote.ask2, quote.ask3, quote.ask4, quote.ask5);
+                            println!(
+                                "    买一到买五: {:.2} {:.2} {:.2} {:.2} {:.2}",
+                                quote.bid1, quote.bid2, quote.bid3, quote.bid4, quote.bid5
+                            );
+                            println!(
+                                "    卖一到卖五: {:.2} {:.2} {:.2} {:.2} {:.2}",
+                                quote.ask1, quote.ask2, quote.ask3, quote.ask4, quote.ask5
+                            );
 
                             // 验证价格递减关系: 买5 < ... < 买1 < 卖1 < ... < 卖5
-                            let buy_prices = [quote.bid5, quote.bid4, quote.bid3, quote.bid2, quote.bid1];
-                            let sell_prices = [quote.ask1, quote.ask2, quote.ask3, quote.ask4, quote.ask5];
+                            let buy_prices =
+                                [quote.bid5, quote.bid4, quote.bid3, quote.bid2, quote.bid1];
+                            let sell_prices =
+                                [quote.ask1, quote.ask2, quote.ask3, quote.ask4, quote.ask5];
 
                             let mut buy_correct = true;
                             for i in 0..4 {
-                                if buy_prices[i] > buy_prices[i+1] {
+                                if buy_prices[i] > buy_prices[i + 1] {
                                     buy_correct = false;
                                     break;
                                 }
@@ -590,7 +655,7 @@ fn test_09_five_level_quotes() {
 
                             let mut sell_correct = true;
                             for i in 0..4 {
-                                if sell_prices[i] > sell_prices[i+1] {
+                                if sell_prices[i] > sell_prices[i + 1] {
                                     sell_correct = false;
                                     break;
                                 }
@@ -618,13 +683,21 @@ fn test_09_five_level_quotes() {
                             }
 
                             // 验证成交量
-                            let total_buy_vol = quote.bid1_vol + quote.bid2_vol + quote.bid3_vol +
-                                              quote.bid4_vol + quote.bid5_vol;
-                            let total_sell_vol = quote.ask1_vol + quote.ask2_vol + quote.ask3_vol +
-                                               quote.ask4_vol + quote.ask5_vol;
+                            let total_buy_vol = quote.bid1_vol
+                                + quote.bid2_vol
+                                + quote.bid3_vol
+                                + quote.bid4_vol
+                                + quote.bid5_vol;
+                            let total_sell_vol = quote.ask1_vol
+                                + quote.ask2_vol
+                                + quote.ask3_vol
+                                + quote.ask4_vol
+                                + quote.ask5_vol;
 
-                            println!("    买盘总量: {:.0}手 卖盘总量: {:.0}手",
-                                total_buy_vol, total_sell_vol);
+                            println!(
+                                "    买盘总量: {:.0}手 卖盘总量: {:.0}手",
+                                total_buy_vol, total_sell_vol
+                            );
 
                             if total_buy_vol > 0.0 || total_sell_vol > 0.0 {
                                 results.record_pass();
@@ -663,9 +736,9 @@ fn test_10_industry_mapping() {
     match Tcp::new() {
         Ok(mut tcp) => {
             let test_cases = vec![
-                (1, "600519", "酒类", "贵州"),   // 贵州茅台
-                (1, "600036", "银行", "浙江"),   // 招商银行
-                (0, "000858", "银行", "四川"),   // 五粮液
+                (1, "600519", "酒类", "贵州"), // 贵州茅台
+                (1, "600036", "银行", "浙江"), // 招商银行
+                (0, "000858", "银行", "四川"), // 五粮液
             ];
 
             for (market, code, expected_industry, expected_province) in test_cases {
@@ -720,12 +793,7 @@ fn test_11_concept_stocks() {
     println!("\n[测试 3.2] 概念板块成分股查询");
     let mut results = TestResults::default();
 
-    let test_concepts = vec![
-        "新能源汽车",
-        "锂电池",
-        "芯片",
-        "人工智能",
-    ];
+    let test_concepts = vec!["新能源汽车", "锂电池", "芯片", "人工智能"];
 
     for concept in test_concepts {
         println!("  🔍 查询概念: {}", concept);

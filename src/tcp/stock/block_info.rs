@@ -143,7 +143,10 @@ impl Tdx for BlockInfoChunk {
 ///     println!("{} 属于锂电池板块", r.code);
 /// }
 /// ```
-pub fn get_block_info(tcp: &mut crate::tcp::Tcp, block_file: &str) -> crate::Result<Vec<BlockRecord>> {
+pub fn get_block_info(
+    tcp: &mut crate::tcp::Tcp,
+    block_file: &str,
+) -> crate::Result<Vec<BlockRecord>> {
     // 1. 文件大小
     let mut meta = BlockInfoMeta::new(block_file);
     meta.recv_parsed(tcp)?;

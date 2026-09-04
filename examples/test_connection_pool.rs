@@ -7,9 +7,9 @@
 //! cargo run --example test_connection_pool
 //! ```
 
+use rustdx_complete::builder::KlineBuilder;
 use rustdx_complete::pool::ConnectionPool;
 use rustdx_complete::tcp::Tdx;
-use rustdx_complete::builder::KlineBuilder;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🏊 rustdx TCP 连接池示例\n");
@@ -138,31 +138,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("📊 获取浦发银行(600000) 最近5天数据...\n");
 
     match pool.get_connection() {
-        Ok(mut conn) => {
-            match kline.recv_parsed(conn.get_mut()) {
-                Ok(_) => {
-                    println!("✅ 数据获取成功\n");
+        Ok(mut conn) => match kline.recv_parsed(conn.get_mut()) {
+            Ok(_) => {
+                println!("✅ 数据获取成功\n");
 
-                    let data = kline.result();
-                    println!("获取到 {} 条数据：\n", data.len());
+                let data = kline.result();
+                println!("获取到 {} 条数据：\n", data.len());
 
-                    for (i, bar) in data.iter().enumerate() {
-                        println!(
-                            "  {}. {:04}-{:02}-{:02} | 收:{:.2} 量:{:.0}万",
-                            i + 1,
-                            bar.dt.year,
-                            bar.dt.month,
-                            bar.dt.day,
-                            bar.close,
-                            bar.vol / 10000.0
-                        );
-                    }
-                }
-                Err(e) => {
-                    println!("❌ 数据获取失败: {}", e);
+                for (i, bar) in data.iter().enumerate() {
+                    println!(
+                        "  {}. {:04}-{:02}-{:02} | 收:{:.2} 量:{:.0}万",
+                        i + 1,
+                        bar.dt.year,
+                        bar.dt.month,
+                        bar.dt.day,
+                        bar.close,
+                        bar.vol / 10000.0
+                    );
                 }
             }
-        }
+            Err(e) => {
+                println!("❌ 数据获取失败: {}", e);
+            }
+        },
         Err(e) => {
             println!("❌ 获取连接失败: {}", e);
             println!("\n💡 提示：请确保网络连接正常，通达信服务器可访问");
@@ -197,23 +195,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         match pool2.get_connection() {
-            Ok(mut conn) => {
-                match kline.recv_parsed(conn.get_mut()) {
-                    Ok(_) => {
-                        let data = kline.result();
-                        if !data.is_empty() {
-                            let bar = &data[0];
-                            println!(
-                                "✅ {} | {:04}-{:02}-{:02} | 收:{:.2}",
-                                code, bar.dt.year, bar.dt.month, bar.dt.day, bar.close
-                            );
-                        }
-                    }
-                    Err(_) => {
-                        println!("⚠️  {} 数据获取失败", code);
+            Ok(mut conn) => match kline.recv_parsed(conn.get_mut()) {
+                Ok(_) => {
+                    let data = kline.result();
+                    if !data.is_empty() {
+                        let bar = &data[0];
+                        println!(
+                            "✅ {} | {:04}-{:02}-{:02} | 收:{:.2}",
+                            code, bar.dt.year, bar.dt.month, bar.dt.day, bar.close
+                        );
                     }
                 }
-            }
+                Err(_) => {
+                    println!("⚠️  {} 数据获取失败", code);
+                }
+            },
             Err(_) => {
                 println!("⚠️  {} 获取连接失败（池已满）", code);
             }
@@ -232,7 +228,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   总连接数: {} / {}", stats.total, stats.max_size);
     println!("   活跃连接: {}", stats.active);
     println!("   空闲连接: {}", stats.idle);
-    println!("   利用率: {:.1}%", (stats.total as f64 / stats.max_size as f64) * 100.0);
+    println!(
+        "   利用率: {:.1}%",
+        (stats.total as f64 / stats.max_size as f64) * 100.0
+    );
 
     // ========================================
     // 示例 8: 自定义配置

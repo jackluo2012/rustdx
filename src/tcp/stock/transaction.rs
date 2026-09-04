@@ -1,5 +1,5 @@
-use crate::tcp::{helper::price, Tdx};
 use crate::bytes_helper::u16_from_le_bytes;
+use crate::tcp::{Tdx, helper::price};
 
 /// 获取股票成交明细。对应于 pytdx 中的 hq.get_transaction_data、GetTransactionDataCmd。
 ///
@@ -186,7 +186,12 @@ mod tests {
     fn test_transaction_send_bytes() {
         let transaction = Transaction::new(0, "000001", 0, 20);
         // 验证包头
-        assert_eq!(&transaction.send[0..12], &[0x0c, 0x17, 0x08, 0x01, 0x01, 0x01, 0x0e, 0x00, 0x0e, 0x00, 0xc5, 0x0f]);
+        assert_eq!(
+            &transaction.send[0..12],
+            &[
+                0x0c, 0x17, 0x08, 0x01, 0x01, 0x01, 0x0e, 0x00, 0x0e, 0x00, 0xc5, 0x0f
+            ]
+        );
         // 验证market
         assert_eq!(&transaction.send[12..14], &[0x00, 0x00]);
         // 验证code

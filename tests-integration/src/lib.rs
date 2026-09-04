@@ -15,7 +15,7 @@ mod east;
 mod fetch_code;
 
 pub use insta::{assert_debug_snapshot as snap, assert_snapshot as shot};
-use tabled::{settings::Style, Table, Tabled};
+use tabled::{Table, Tabled, settings::Style};
 
 pub type DateTime = chrono::DateTime<chrono::Local>;
 pub fn now() -> DateTime {

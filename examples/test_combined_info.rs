@@ -1,4 +1,7 @@
 #!/usr/bin/env rustx
+use rustdx_complete::tcp::stock::{
+    FinanceInfo, get_concept_stocks, get_industry_name, get_province_name,
+};
 /**
 综合示例：结合通达信行业和东方财富概念板块信息
 
@@ -8,14 +11,16 @@
 3. 结合两种信息进行股票分析
 */
 use rustdx_complete::tcp::{Tcp, Tdx};
-use rustdx_complete::tcp::stock::{FinanceInfo, get_industry_name, get_province_name, get_concept_stocks};
 
 fn main() {
     println!("🚀 综合示例：通达信行业 + 东方财富概念板块\n");
 
     // 1. 获取股票的通达信行业信息
     println!("1️⃣  通过通达信获取股票行业信息:\n");
-    println!("   {:<12} {:<10} {:<12} {:<10}", "股票", "名称", "行业", "省份");
+    println!(
+        "   {:<12} {:<10} {:<12} {:<10}",
+        "股票", "名称", "行业", "省份"
+    );
     println!("   {}", "-".repeat(50));
 
     let test_stocks = vec![
@@ -37,13 +42,15 @@ fn main() {
 
     for (market, code, name) in test_stocks {
         let mut finance = FinanceInfo::new(market, code);
-        if finance.recv_parsed(&mut tcp).is_ok()
-            && !finance.result().is_empty() {
-                let info = &finance.result()[0];
-                let industry = get_industry_name(info.industry);
-                let province = get_province_name(info.province);
-                println!("   {:<12} {:<10} {:<12} {:<10}", code, name, industry, province);
-            }
+        if finance.recv_parsed(&mut tcp).is_ok() && !finance.result().is_empty() {
+            let info = &finance.result()[0];
+            let industry = get_industry_name(info.industry);
+            let province = get_province_name(info.province);
+            println!(
+                "   {:<12} {:<10} {:<12} {:<10}",
+                code, name, industry, province
+            );
+        }
     }
 
     // 2. 查询热门概念的成分股

@@ -1,9 +1,9 @@
 #!/usr/bin/env rustx
+use rustdx_complete::tcp::stock::SecurityQuotes;
 /**
 调试版：查看指数响应数据的实际大小
 */
 use rustdx_complete::tcp::{Tcp, Tdx};
-use rustdx_complete::tcp::stock::SecurityQuotes;
 use std::net::SocketAddr;
 
 fn main() {
@@ -11,7 +11,10 @@ fn main() {
 
     use rustdx_complete::tcp::TcpConfig;
     let addr: SocketAddr = "115.238.56.198:7709".parse().unwrap();
-    match Tcp::with_config(&TcpConfig { timeout: std::time::Duration::from_secs(5), ip: Some(addr) }) {
+    match Tcp::with_config(&TcpConfig {
+        timeout: std::time::Duration::from_secs(5),
+        ip: Some(addr),
+    }) {
         Ok(mut tcp) => {
             println!("✅ 连接成功\n");
 

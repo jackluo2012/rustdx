@@ -1,9 +1,9 @@
 #!/usr/bin/env rustx
+use rustdx_complete::tcp::stock::MinuteTime;
 /**
 测试MinuteTime功能，获取股票分时数据
 */
 use rustdx_complete::tcp::{Tcp, Tdx};
-use rustdx_complete::tcp::stock::MinuteTime;
 
 fn main() {
     println!("🚀 测试MinuteTime功能\n");
@@ -39,13 +39,23 @@ fn test_minute_time(tcp: &mut Tcp) {
             if !minute.result().is_empty() {
                 println!("   前10个数据点:");
                 for (i, data) in minute.result().iter().take(10).enumerate() {
-                    println!("      {:2}. 价格: {:>7.2}  成交量: {}", i + 1, data.price, data.vol);
+                    println!(
+                        "      {:2}. 价格: {:>7.2}  成交量: {}",
+                        i + 1,
+                        data.price,
+                        data.vol
+                    );
                 }
 
                 println!("\n   最后5个数据点:");
                 let len = minute.result().len();
                 for (i, data) in minute.result().iter().skip(len - 5).enumerate() {
-                    println!("      {:2}. 价格: {:>7.2}  成交量: {}", len - 5 + i + 1, data.price, data.vol);
+                    println!(
+                        "      {:2}. 价格: {:>7.2}  成交量: {}",
+                        len - 5 + i + 1,
+                        data.price,
+                        data.vol
+                    );
                 }
 
                 // 计算简单的统计数据
@@ -79,7 +89,12 @@ fn test_minute_time(tcp: &mut Tcp) {
             if !minute.result().is_empty() {
                 println!("   前10个数据点:");
                 for (i, data) in minute.result().iter().take(10).enumerate() {
-                    println!("      {:2}. 价格: {:>7.2}  成交量: {}", i + 1, data.price, data.vol);
+                    println!(
+                        "      {:2}. 价格: {:>7.2}  成交量: {}",
+                        i + 1,
+                        data.price,
+                        data.vol
+                    );
                 }
 
                 // 计算简单的统计数据

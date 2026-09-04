@@ -1,5 +1,5 @@
-use rustdx_complete::tcp::{Tcp, Tdx};
 use rustdx_complete::tcp::stock::SecurityQuotes;
+use rustdx_complete::tcp::{Tcp, Tdx};
 
 fn main() {
     println!("🔍 调试：查看服务器返回的原始数据\n");
@@ -44,8 +44,14 @@ fn main() {
                 println!("      字节0-11 (标识): {:02X?}", &recv_data[0..12]);
                 let deflate_size = u16::from_le_bytes([recv_data[12], recv_data[13]]);
                 let inflate_size = u16::from_le_bytes([recv_data[14], recv_data[15]]);
-                println!("      字节12-13 (压缩后长度): {} (0x{:04X})", deflate_size, deflate_size);
-                println!("      字节14-15 (解压后长度): {} (0x{:04X})", inflate_size, inflate_size);
+                println!(
+                    "      字节12-13 (压缩后长度): {} (0x{:04X})",
+                    deflate_size, deflate_size
+                );
+                println!(
+                    "      字节14-15 (解压后长度): {} (0x{:04X})",
+                    inflate_size, inflate_size
+                );
 
                 if deflate_size == 0 {
                     println!("\n   ⚠️  服务器返回空数据（压缩长度为0）");

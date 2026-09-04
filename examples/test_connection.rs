@@ -1,3 +1,4 @@
+use rustdx_complete::tcp::stock::SecurityQuotes;
 /**
  * rustdx-complete 连接测试示例
  *
@@ -9,7 +10,6 @@
  * - 内置多个备用服务器自动切换
  */
 use rustdx_complete::tcp::{Tcp, Tdx};
-use rustdx_complete::tcp::stock::SecurityQuotes;
 use std::net::SocketAddr;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -27,8 +27,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // 查询股票数据
             let mut quotes = SecurityQuotes::new(vec![
-                (0, "000001"),  // 平安银行
-                (1, "600000"),  // 浦发银行
+                (0, "000001"), // 平安银行
+                (1, "600000"), // 浦发银行
             ]);
 
             match quotes.recv_parsed(&mut tcp) {
