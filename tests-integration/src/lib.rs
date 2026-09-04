@@ -1,4 +1,4 @@
-//! 此库用于测试 rustdx 和 rustdx-cmd
+//! 此库用于测试 rustdx 和 rustdx-cli
 
 /// 测量一个表达式花费的时间，返回 `(val, time_in_millis)`
 #[allow(unused)]

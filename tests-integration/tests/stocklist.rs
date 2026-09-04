@@ -1,4 +1,4 @@
-use rustdx_cmd::{eastmoney, fetch_code};
+use rustdx_cli::{eastmoney, fetch_code};
 use std::{collections::HashSet, sync::LazyLock};
 
 macro_rules! get {

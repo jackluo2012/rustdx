@@ -1,6 +1,6 @@
 use crate::cmd::DayCmd;
 use eyre::{Result, anyhow};
-use rustdx_cmd::fetch_code::StockList;
+use rustdx_cli::fetch_code::StockList;
 use rustdx_complete::file::{
     day::fq::Day,
     gbbq::{Factor, Gbbq},

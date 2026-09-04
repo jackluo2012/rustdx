@@ -44,6 +44,7 @@
 - ✅ README 全面重写（功能对照表、真实示例、已知问题诚实声明）
 - ✅ 197 个测试全部通过、clippy 零警告
 - ✅ 仓库整理：14 个过时文档归档 docs/archive/，pytdx 对照脚本入 scripts/
+- ✅ CLI 更名发布：`rustdx-cmd` → `rustdx-cli`（crates.io 上 `rustdx-cmd` 归属上游 zjp-CN，改用自有命名空间发布；二进制名仍为 `rustdx`）
 
 ## v1.0.1 (2026-09-04)
 

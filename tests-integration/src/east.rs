@@ -3,7 +3,7 @@
 #[ignore = "联网更新数据"]
 fn daily() {
     use super::{Tabled, now, shot, to_table};
-    use rustdx_cmd::eastmoney::{Day, get, parse};
+    use rustdx_cli::eastmoney::{Day, get, parse};
 
     // 此测试运行的日期
     shot!(now(), @"2023-02-23 15:38:52.329844174 +08:00");

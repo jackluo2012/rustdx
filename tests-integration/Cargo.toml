@@ -8,6 +8,6 @@ publish = false
 tabled = "0.21"
 insta = "1"
 rustdx-complete = { path = "../" }
-rustdx-cmd = { path = "../rustdx-cmd" }
+rustdx-cli = { path = "../rustdx-cmd" }
 chrono = { workspace = true }
 
