@@ -10,18 +10,21 @@ pub mod fq;
 /// 解析 `*.day` 文件中的一条日线数据，即其 32 个字节所代表的所有信息。
 ///
 /// 注意：这个类型只对 `*.day` 文件进行了初步解析，
-/// 所以日期 `date` 和股票代码 `code` 都是 `u32` 类型，
+/// 所以日期 `date` 是 `u32` 类型，
+/// 而股票代码 `code` 是**含市场前缀的字符串**（如 `sh600000`、`sz000001`、`sz200b07`），
+/// 这样在合并多个市场（sh/sz/bj）输出时不会发生代码混叠，
+/// 也能保留带字母的特殊品种代码（如深市板块指数 `200b07`）。
 ///
 /// ## 注意
 /// 开启 `serde` feature 时，此结构体的序列化 (serialize) 时：
 /// 1. `date` 为 `年-月-日` 格式
-/// 2. `code` 为 6 位字符串的股票代码
-#[derive(Debug, Clone, Copy, Serialize)]
+/// 2. `code` 为含市场前缀的股票代码字符串
+#[derive(Debug, Clone, Serialize)]
 pub struct Day {
     #[serde(serialize_with = "ser_date_string")]
     pub date: u32,
     #[serde(serialize_with = "ser_code_string")]
-    pub code: u32,
+    pub code: String,
     pub open: f32,
     pub high: f32,
     pub low: f32,
@@ -60,7 +63,8 @@ impl Day {
     /// 月：20210810%10000/100 = 8
     ///
     /// 日：20210810%10000%100 = 10
-    pub fn from_bytes(code: u32, arr: &[u8]) -> Self {
+    /// `code` 为含市场前缀的字符串（如 `sh600000`、`sz200b07`）。
+    pub fn from_bytes(code: &str, arr: &[u8]) -> Self {
         use crate::bytes_helper::{f32_from_le_bytes, u32_from_le_bytes};
         Self {
             date: u32_from_le_bytes(arr, 0),
@@ -70,17 +74,19 @@ impl Day {
             close: u32_from_le_bytes(arr, 16) as f32 / 100.,
             amount: f32_from_le_bytes(arr, 20),
             vol: u32_from_le_bytes(arr, 24),
-            code,
+            code: code.to_owned(),
         }
     }
 
     /// 一次性以**同步**方式读取单个 `*.day` 文件所有数据，然后转化成 Vec。
-    pub fn from_file_into_vec<P: AsRef<Path>>(code: u32, p: P) -> crate::Result<Vec<Day>> {
+    /// `code` 为含市场前缀的字符串（如 `sh600000`、`sz200b07`）。
+    pub fn from_file_into_vec<P: AsRef<Path>>(code: &str, p: P) -> crate::Result<Vec<Day>> {
+        let code = code.to_owned();
         Ok(std::fs::read(p)?
             .as_chunks::<32>()
             .0
             .iter()
-            .map(|b| Self::from_bytes(code, b))
+            .map(|b| Self::from_bytes(&code, b))
             .collect())
     }
 

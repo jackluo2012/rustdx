@@ -18,9 +18,10 @@ impl Factor {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Fq {
-    pub code: u32,
+    /// 含市场前缀的股票代码（如 `sh600000`）
+    pub code: String,
     /// 年月日
     pub date: u32,
     pub factor: f64,
@@ -54,7 +55,7 @@ impl Fq {
                     // 为了让上市日因子为 1
                     first += 1;
                 } else {
-                    fqs.push(Self::_0(d, xdxr, preclose, &mut factor, false, true));
+                    fqs.push(Self::_0(&d, xdxr, preclose, &mut factor, false, true));
                 }
                 if let Some(x) = gbbq.next() {
                     xdxr = x;
@@ -64,7 +65,7 @@ impl Fq {
             }
             if d.date == xdxr.date {
                 // 除权日且交易日
-                fqs.push(Self::_0(d, xdxr, preclose, &mut factor, true, true));
+                fqs.push(Self::_0(&d, xdxr, preclose, &mut factor, true, true));
                 if let Some(x) = gbbq.next() {
                     xdxr = x;
                 } else if !last {
@@ -72,7 +73,7 @@ impl Fq {
                 }
             } else if d.date < xdxr.date || last {
                 // 下个除权日之前的交易日，或者最后一个除权日的交易日
-                fqs.push(Self::_0(d, xdxr, preclose, &mut factor, true, false));
+                fqs.push(Self::_0(&d, xdxr, preclose, &mut factor, true, false));
             }
             preclose = d.close as f64;
         }
@@ -118,7 +119,7 @@ impl Fq {
         for d in days {
             while !last && d.date > xdxr.date {
                 // 因为停牌或某种原因导致下个交易日晚于除权日
-                // fqs.push(Self::_0(d, xdxr, preclose, &mut factor, false, true));
+                // fqs.push(Self::_0(&d, xdxr, preclose, &mut factor, false, true));
                 if let Some(x) = gbbq.next() {
                     xdxr = x;
                 } else if !last {
@@ -127,7 +128,7 @@ impl Fq {
             }
             if d.date == xdxr.date {
                 // 除权日且交易日
-                fqs.push(Self::_0(d, xdxr, preclose, &mut factor, true, true));
+                fqs.push(Self::_0(&d, xdxr, preclose, &mut factor, true, true));
                 if let Some(x) = gbbq.next() {
                     xdxr = x;
                 } else if !last {
@@ -135,7 +136,7 @@ impl Fq {
                 }
             } else if d.date < xdxr.date || last {
                 // 下个除权日之前的交易日，或者最后一个除权日的交易日
-                fqs.push(Self::_0(d, xdxr, preclose, &mut factor, true, false));
+                fqs.push(Self::_0(&d, xdxr, preclose, &mut factor, true, false));
             }
             preclose = d.close as f64;
         }
@@ -187,7 +188,7 @@ impl Fq {
     }
 
     #[inline]
-    fn _0(d: Day, g: &Gbbq, preclose: f64, factor: &mut f64, trading: bool, xdxr: bool) -> Self {
+    fn _0(d: &Day, g: &Gbbq, preclose: f64, factor: &mut f64, trading: bool, xdxr: bool) -> Self {
         let [preclose, close, pct] = g.compute_pre_pct(d.close, preclose, xdxr);
         *factor *= pct;
         // println!("d.date: {},factor: {},d.close: {}preclose: {},pct: {}trading: {},xdxr: {}",
@@ -197,7 +198,7 @@ impl Fq {
             preclose,
             trading,
             xdxr,
-            code: d.code,
+            code: d.code.clone(),
             date: d.date,
             factor: *factor,
         }

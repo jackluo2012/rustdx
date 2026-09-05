@@ -132,24 +132,27 @@ impl DayCmd {
         }
     }
 
-    /// 筛选 sz/sh 交易所和股票代码的开头，并把代码转换为 u32
-    /// 当 -e 为 auto 时，自动匹配 6 开头的股票为 sh，否则为 sz
-    /// TODO: 移除转换成 u32 的代码
-    pub fn filter_ec(&self, fname: &str) -> (bool, u32) {
+    /// 筛选 sz/sh 交易所和股票代码的开头，并把代码转换为
+    /// **含市场前缀的完整字符串**（如 `sz000001`、`sz200b07`）。
+    /// 当 -e 为 auto 时，自动匹配 6 开头的股票为 sh，否则为 sz。
+    ///
+    /// 不再把代码转成 `u32`：既支持带字母的特殊品种代码（如深市板块指数
+    /// `200b07`，`u32` 无法表示），也让输出 code 保留市场前缀从而避免
+    /// 合并多市场（sh/sz/bj）时的代码混叠。
+    pub fn filter_ec(&self, fname: &str) -> (bool, String) {
         let len = fname.len();
-        let code = &fname[len - 10..len - 4];
-        let ex_f = &fname[len - 12..len - 10];
+        let code = &fname[len - 10..len - 4]; // 6 位代码，可含字母
+        let ex_f = &fname[len - 12..len - 10]; // 市场前缀 sh/sz/bj
         let match_ex = |ex: &str| ex == ex_f || ex == "auto";
-        let c = code.parse();
+        let full = format!("{ex_f}{code}");
         (
-            c.is_ok()
-                && self.exchange.as_deref().map(match_ex).unwrap_or(true)
+            self.exchange.as_deref().map(match_ex).unwrap_or(true)
                 && self
                     .code
                     .as_ref()
                     .map(|s| code.starts_with(s))
                     .unwrap_or(true),
-            c.unwrap_or(0),
+            full,
         )
     }
 

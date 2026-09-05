@@ -43,3 +43,7 @@ examples/*_raw.rs
 *.bak
 *.backup
 __pycache__/
+
+# 通达信全量数据（测试用，体积大）
+hsjday.zip
+hsjday/

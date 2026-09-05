@@ -10,77 +10,110 @@ use std::{
     io::{self, Write},
     path::Path,
     process::Command,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc,
+    },
+    thread,
 };
 
 const BUFFER_SIZE: usize = 32 * (1 << 20); // 32M
 
-/// TODO 协程解析、异步缓冲写入（利用多核优势）
-pub fn run_csv(cmd: &DayCmd) -> Result<()> {
+/// 并发解析目录下的 day 文件并写入 CSV（利用多核优势）。
+///
+/// - 解析阶段：多个工作线程（默认逻辑核心数）并行读取并解析 `.day` 文件；
+/// - 写入阶段：主线程从 channel 顺序接收解析结果并写入 CSV，避免并发写文件。
+///
+/// `parse` 负责把单个文件解析成 `Vec<T>`，`T` 为可序列化的日线类型。
+fn run_par<F, T>(cmd: &DayCmd, wtr: &mut csv::Writer<File>, parse: F) -> Result<()>
+where
+    F: Fn(&str, &Path) -> eyre::Result<Vec<T>> + Send + Sync,
+    T: serde::Serialize + Send,
+{
     let hm = cmd.stocklist();
-    let file = File::create(&cmd.output)?;
-    let mut wtr = csv::WriterBuilder::new()
-        .buffer_capacity(BUFFER_SIZE)
-        .from_writer(file);
     for dir in &cmd.path {
-        let n = filter_file(dir)?.count();
+        // 收集 (完整代码, 文件路径)，代码含市场前缀（如 `sz000001`、`sz200b07`）
+        let work: Vec<(String, std::path::PathBuf)> = filter_file(dir)?
+            .filter_map(|f| {
+                let s = f.to_str().unwrap();
+                let (b, code) = cmd.filter_ec(s);
+                filter(b, f.as_path(), hm.as_ref(), dir).unwrap_or(false)
+                    .then_some((code, f))
+            })
+            .take(cmd.amount.unwrap_or_else(|| filter_file(dir).map(|it| it.count()).unwrap_or(0)))
+            .collect();
+        let n = work.len();
         info!("dir: {dir:?} day 文件数量：{n}");
         let take = cmd.amount.unwrap_or(n);
 
-        let mut count: usize = 0;
-        filter_file(dir)?
-            .map(|f| (cmd.filter_ec(f.to_str().unwrap()), f))
-            .filter(|((b, _), s)| filter(*b, s, hm.as_ref(), dir).unwrap_or(false))
-            .take(take)
-            .filter_map(|((_, code), src)| {
-                count += 1;
-                debug!("#{code:06}# {src:?}");
-                rustdx_complete::file::day::Day::from_file_into_vec(code, src).ok()
-            })
-            .flatten()
-            .try_for_each(|t| wtr.serialize(t))?;
+        let count = AtomicUsize::new(0); // 成功解析的文件数
+        let next = AtomicUsize::new(0); // 任务队列：原子取下一个文件
+        let workers = thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+        let (tx, rx) = mpsc::channel::<Vec<T>>();
 
-        print(dir, count, take);
+        // 所有 worker 共享的引用：原子计数器与任务列表
+        let count = &count;
+        let next = &next;
+        let work = &work;
+        let parse = &parse;
+
+        thread::scope(|s| {
+            for _ in 0..workers {
+                let tx = tx.clone();
+                s.spawn(move || loop {
+                    let i = next.fetch_add(1, Ordering::Relaxed);
+                    if i >= work.len() {
+                        break;
+                    }
+                    let (code, src) = &work[i];
+                    if let Ok(v) = parse(code, src) {
+                        count.fetch_add(1, Ordering::Relaxed);
+                        // 发送失败说明主线程已退出，直接结束
+                        let _ = tx.send(v);
+                    }
+                });
+            }
+            drop(tx); // 关闭发送端，主线程的迭代才能结束
+            for v in rx {
+                for t in v {
+                    wtr.serialize(t)?;
+                }
+            }
+            Ok::<(), eyre::Report>(())
+        })?;
+
+        print(dir, count.load(Ordering::Relaxed), take);
     }
     wtr.flush().map_err(|e| e.into())
 }
 
-/// TODO 协程解析、异步缓冲写入（利用多核优势）
+/// 并发解析并输出 CSV（无复权）。
+pub fn run_csv(cmd: &DayCmd) -> Result<()> {
+    let file = File::create(&cmd.output)?;
+    let mut wtr = csv::WriterBuilder::new()
+        .buffer_capacity(BUFFER_SIZE)
+        .from_writer(file);
+    run_par(cmd, &mut wtr, |code, src| {
+        Ok(rustdx_complete::file::day::Day::from_file_into_vec(code, src)?)
+    })
+}
+
+/// 并发解析并输出 CSV（复权，基于上市日）。
 pub fn run_csv_fq(cmd: &DayCmd) -> Result<()> {
     // 股本变迁
     let mut bytes = fs::read(cmd.gbbq.as_ref().unwrap())?;
     let gbbq = Gbbq::filter_hashmap(Gbbq::iter(&mut bytes[4..]));
 
-    // 股票列表
-    let hm = cmd.stocklist();
-
     let file = File::create(&cmd.output)?;
     let mut wtr = csv::WriterBuilder::new()
         .buffer_capacity(BUFFER_SIZE)
         .from_writer(file);
-    for dir in &cmd.path {
-        let n = filter_file(dir)?.count();
-        info!("dir: {dir:?} day 文件数量：{n}");
-        let take = cmd.amount.unwrap_or(n);
-
-        let mut count: usize = 0;
-        filter_file(dir)?
-            .map(|f| (cmd.filter_ec(f.to_str().unwrap()), f))
-            .filter(|((b, _), s)| filter(*b, s, hm.as_ref(), dir).unwrap_or(false))
-            .take(take)
-            .filter_map(|((_, code), src)| {
-                count += 1;
-                debug!("#{code:06}# {src:?}");
-                Day::new(code, src, gbbq.get(&code).map(Vec::as_slice)).ok()
-            })
-            .flatten()
-            .try_for_each(|t| wtr.serialize(t))?;
-
-        print(dir, count, take);
-    }
-    wtr.flush().map_err(|e| e.into())
+    run_par(cmd, &mut wtr, |code, src| {
+        Ok(Day::new(code, src, gbbq.get(code).map(Vec::as_slice))?)
+    })
 }
 
-/// TODO 协程解析、异步缓冲写入（利用多核优势）
+/// 并发解析并输出 CSV（复权，基于前一日的因子）。
 pub fn run_csv_fq_previous(cmd: &DayCmd) -> Result<()> {
     // 股本变迁
     let mut bytes = fs::read(cmd.gbbq.as_ref().unwrap())?;
@@ -89,41 +122,19 @@ pub fn run_csv_fq_previous(cmd: &DayCmd) -> Result<()> {
     // 前收
     let previous = previous_csv_table(&cmd.previous, &cmd.table, cmd.keep_factor)?;
 
-    // 股票列表
-    let hm = cmd.stocklist();
-
     let file = File::create(&cmd.output)?;
     let mut wtr = csv::WriterBuilder::new()
         .buffer_capacity(BUFFER_SIZE)
         .from_writer(file);
-    for dir in &cmd.path {
-        let n = filter_file(dir)?.count();
-        info!("dir: {dir:?} day 文件数量：{n}");
-        let take = cmd.amount.unwrap_or(n);
-
-        let mut count: usize = 0;
-        filter_file(dir)?
-            .map(|f| (cmd.filter_ec(f.to_str().unwrap()), f))
-            .filter(|((b, _), s)| filter(*b, s, hm.as_ref(), dir).unwrap_or(false))
-            .take(take)
-            .filter_map(|((_, code), src)| {
-                count += 1;
-                debug!("#{code:06}# {src:?}");
-                Day::concat(
-                    code,
-                    src,
-                    // 无分红数据并不意味着无复权数据
-                    gbbq.get(&code).map(Vec::as_slice),
-                    previous.get(&code),
-                )
-                .ok()
-            })
-            .flatten()
-            .try_for_each(|t| wtr.serialize(t))?;
-
-        print(dir, count, take);
-    }
-    wtr.flush().map_err(|e| e.into())
+    run_par(cmd, &mut wtr, |code, src| {
+        Ok(Day::concat(
+            code,
+            src,
+            // 无分红数据并不意味着无复权数据
+            gbbq.get(code).map(Vec::as_slice),
+            previous.get(code),
+        )?)
+    })
 }
 
 /// 筛选 day 文件
@@ -168,7 +179,7 @@ pub fn setup_clickhouse(fq: bool, table: &str) -> Result<()> {
             CREATE TABLE IF NOT EXISTS {table}
             (
                 `date` Date CODEC(DoubleDelta),
-                `code` FixedString(6),
+                `code` String,
                 `open` Float32,
                 `high` Float32,
                 `low` Float32,
@@ -186,7 +197,7 @@ pub fn setup_clickhouse(fq: bool, table: &str) -> Result<()> {
             CREATE TABLE IF NOT EXISTS {table}
             (
                 `date` Date CODEC(DoubleDelta),
-                `code` FixedString(6),
+                `code` String,
                 `open` Float32,
                 `high` Float32,
                 `low` Float32,
@@ -244,7 +255,7 @@ fn test_insert_clickhouse() -> Result<()> {
     insert_clickhouse(&"clickhouse", "rustdx.tmp", true)
 }
 
-type Previous = Result<std::collections::HashMap<u32, Factor>>;
+type Previous = Result<std::collections::HashMap<String, Factor>>;
 
 pub fn previous_csv_table(
     path: &Option<std::path::PathBuf>,
@@ -262,13 +273,16 @@ pub fn previous_csv_table(
     }
 }
 
-/// 读取前收盘价（前 factor ）数据
+/// 读取前收盘价（前 factor ）数据。
+///
+/// 注意：`code` 列需为**含市场前缀的完整代码**（如 `sh600000`），
+/// 与 day 命令输出的 code 格式一致，否则无法匹配。
 pub fn previous_csv(p: impl AsRef<Path>, keep_factor: bool) -> Previous {
     let path = p.as_ref();
     let prev = csv::Reader::from_reader(File::open(path)?)
         .deserialize::<Factor>()
         .filter_map(|f| f.ok())
-        .map(|f| (f.code.parse().unwrap(), f))
+        .map(|f| (f.code.clone(), f))
         .collect();
     if !keep_factor {
         fs::remove_file(path)?;

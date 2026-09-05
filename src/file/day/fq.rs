@@ -21,13 +21,14 @@ pub struct Day {
 }
 
 impl Day {
-    pub fn new(code: u32, p: impl AsRef<Path>, gbbqs: Option<&[Gbbq]>) -> Result<Vec<Self>> {
+    pub fn new(code: &str, p: impl AsRef<Path>, gbbqs: Option<&[Gbbq]>) -> Result<Vec<Self>> {
         let raw = std::fs::read(p)?;
+        let code = code.to_owned();
         let days = raw
             .as_chunks::<32>()
             .0
             .iter()
-            .map(|b| super::Day::from_bytes(code, b));
+            .map(|b| super::Day::from_bytes(&code, b));
         let fq = gbbqs
             .map(|g| Fq::new(days.clone(), g))
             .unwrap_or(Fq::no_gbbq(days.clone()))
@@ -38,7 +39,7 @@ impl Day {
             .zip(fq)
             .map(|(d, f)| Self {
                 date: crate::bytes_helper::date_string(d.date),
-                code: format!("{:06}", d.code),
+                code: d.code,
                 open: d.open,
                 high: d.high,
                 low: d.low,
@@ -52,17 +53,18 @@ impl Day {
     }
 
     pub fn concat(
-        code: u32,
+        code: &str,
         p: impl AsRef<Path>,
         gbbqs: Option<&[Gbbq]>,
         f: Option<&Factor>,
     ) -> Result<Vec<Self>> {
         let raw = std::fs::read(p)?;
+        let code = code.to_owned();
         let days = raw
             .as_chunks::<32>()
             .0
             .iter()
-            .map(|b| super::Day::from_bytes(code, b));
+            .map(|b| super::Day::from_bytes(&code, b));
         let (preclose, factor) = f.map(|f| (f.preclose, f.factor)).unwrap_or((
             days.clone()
                 .next()
@@ -80,7 +82,7 @@ impl Day {
             .zip(fq)
             .map(|(d, f)| Self {
                 date: crate::bytes_helper::date_string(d.date),
-                code: format!("{:06}", d.code),
+                code: d.code,
                 open: d.open,
                 high: d.high,
                 low: d.low,

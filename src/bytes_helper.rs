@@ -54,9 +54,10 @@ where
     serializer.serialize_str(&crate::bytes_helper::date_string(*date))
 }
 
-pub fn ser_code_string<S>(code: &u32, serializer: S) -> Result<S::Ok, S::Error>
+/// 序列化完整的股票代码字符串（含市场前缀，如 `sh600000` / `sz200b07`）。
+pub fn ser_code_string<S>(code: &str, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
-    serializer.serialize_str(&format!("{code:06}"))
+    serializer.serialize_str(code)
 }

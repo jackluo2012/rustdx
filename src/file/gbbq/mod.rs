@@ -6,7 +6,9 @@ pub use fq::*;
 use crate::{Result, bytes_helper::*};
 
 use std::collections::HashMap;
-pub type StockGbbq<'a> = HashMap<u32, Vec<Gbbq<'a>>>;
+/// gbbq 按**含市场前缀的完整代码**（如 `sh600000`）分组的 HashMap，
+/// 与 [`crate::file::day::Day::code`] 的格式保持一致。
+pub type StockGbbq<'a> = HashMap<String, Vec<Gbbq<'a>>>;
 
 /// 股本变迁 (gbbq) 文件。
 ///
@@ -104,10 +106,13 @@ impl<'a> Gbbq<'a> {
     }
 
     /// 把 `gbbq` 文件的分红送股信息（category = 1）全部提取出来变成 HashMap 数据类型：
-    /// key 为股票代码。
+    /// key 为**含市场前缀的完整代码**（如 `sh600000`），与 [`crate::file::day::Day::code`] 一致。
+    ///
+    /// 说明：gbbq 中 `market` 字段 0 = 深圳、1 = 上海（与通达信一致），
+    /// 拼前缀后可直接与 day 文件的完整代码匹配，不再经过 `u32` 转换。
     pub fn filter_hashmap(gbbq: impl Iterator<Item = Self>) -> StockGbbq<'a> {
         // TODO: 128 和 5000 变成常量
-        let mut code = 0;
+        let mut key = String::new();
         let mut vec = Vec::with_capacity(128); // 目前最多变更纪录的股票才不到 100 条记录
         let mut hm = HashMap::with_capacity(5000); // 目前 4000 多只 A 股
         gbbq.filter(|g| {
@@ -120,10 +125,14 @@ impl<'a> Gbbq<'a> {
                 && g.category == 1 // 只需要 A 股股票和分红等信息
         })
         .map(|g| {
-            let c = g.code.parse().unwrap();
-            if c != code {
-                hm.insert(code, vec.clone()); // TODO: 优化这里的 clone
-                code = c;
+            let c = if g.market == 1 {
+                format!("sh{}", g.code)
+            } else {
+                format!("sz{}", g.code)
+            };
+            if c != key {
+                hm.insert(key.clone(), vec.clone()); // TODO: 优化这里的 clone
+                key = c;
                 vec.clear();
                 vec.push(g);
             } else {
@@ -131,8 +140,8 @@ impl<'a> Gbbq<'a> {
             }
         })
         .last();
-        hm.insert(code, vec); // 插入最后一个股票
-        hm.remove(&0);
+        hm.insert(key.clone(), vec); // 插入最后一个股票
+        hm.remove("");
         hm
     }
 }

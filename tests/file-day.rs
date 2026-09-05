@@ -17,7 +17,7 @@ pub struct Day {
 
 impl Day {
     #[inline]
-    pub fn from_bytes(code: u32, arr: &[u8]) -> Self {
+    pub fn from_bytes(code: &str, arr: &[u8]) -> Self {
         use rustdx_complete::file::day::Day as DayRaw;
         let DayRaw {
             code,
@@ -30,7 +30,7 @@ impl Day {
             vol,
         } = DayRaw::from_bytes(code, arr);
         Self {
-            code: format!("{code:06}"),
+            code,
             date: rustdx_complete::bytes_helper::date_string(date),
             open,
             high,
@@ -44,7 +44,7 @@ impl Day {
     }
 
     pub fn from_file_into_vec<P: AsRef<Path>>(
-        code: u32,
+        code: &str,
         p: P,
     ) -> rustdx_complete::Result<Vec<Day>> {
         Ok(std::fs::read(p)?
@@ -62,9 +62,9 @@ type Result<T> = std::result::Result<T, Error>;
 #[test]
 fn day() -> Result<()> {
     let path = "assets/sz000001.day";
-    let day1 = Day::from_file_into_vec(1, path)?;
+    let day1 = Day::from_file_into_vec("sz000001", path)?;
     let day2 = write_to_csv(rustdx_complete::file::day::Day::from_file_into_vec(
-        1, path,
+        "sz000001", path,
     )?)?;
     // insta::assert_yaml_snapshot!("serde-type", day1);
     assert_eq!(write_to_csv(day1)?, day2);
