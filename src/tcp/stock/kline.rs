@@ -135,28 +135,77 @@ impl<'a> Tdx for Kline<'a> {
     #[rustfmt::skip]
     fn parse(&mut self, v: Vec<u8>) {
         use crate::{
-            tcp::helper::{datetime, price, vol_amount},
-            bytes_helper::{u16_from_le_bytes, u32_from_le_bytes}
+            tcp::helper::{datetime, vol_amount},
+            bytes_helper::u16_from_le_bytes
         };
 
-        let (count, mut pos, mut base) = (u16_from_le_bytes(&v, 0), 2, 0);
-        debug_assert_eq!(count, self.count);
+        // ① 服务器可能返回少于请求数（历史尽头 / 长期停牌等）；② 响应体可能被
+        // 截断（代理环境实测出现过只有 2 字节包头的响应）。两种情况都必须只解析
+        // 实际可读的记录并截断 data——否则 debug 构建在此 panic（越界切片），
+        // release 下读到垃圾数据，违背本 crate「解析异常时返回空数据而非垃圾数据」
+        // 的约定。价格字段是 varint（1~5 字节不定长），无法按固定步长预算，
+        // 只能逐字段安全读取。
+        if v.len() < 2 {
+            self.data.clear();
+            self.response = v;
+            return;
+        }
+        let count = u16_from_le_bytes(&v, 0) as usize;
+        self.data.truncate(count.min(self.count as usize));
+
+        // 与 helper::price 同逻辑的越界安全版：响应截断时返回 None。
+        fn price_checked(arr: &[u8], pos: &mut usize) -> Option<i32> {
+            let mut shl = 6;
+            let mut bit = *arr.get(*pos)? as i32;
+            let mut res = bit & 0x3f;
+            let sign = (bit & 0x40) == 0;
+
+            while (bit & 0x80) != 0 {
+                *pos += 1;
+                bit = *arr.get(*pos)? as i32;
+                res += (bit & 0x7f) << shl;
+                shl += 7;
+            }
+            *pos += 1;
+
+            if sign { Some(res) } else { Some(-res) }
+        }
+
+        let (mut pos, mut base, mut parsed) = (2usize, 0i32, 0usize);
         for item in self.data.iter_mut() {
+            if pos + 4 > v.len() {
+                break; // dt
+            }
             let dt = datetime(&v[pos..pos + 4], self.category);
             pos += 4;
-            let open = price(&v, &mut pos);
-            let close = price(&v, &mut pos);
+            let (Some(open), Some(close), Some(high), Some(low)) = (
+                price_checked(&v, &mut pos),
+                price_checked(&v, &mut pos),
+                price_checked(&v, &mut pos),
+                price_checked(&v, &mut pos),
+            ) else {
+                break;
+            };
+            if pos + 8 > v.len() {
+                break; // vol + amount 各 4 字节
+            }
+            let vol_raw = u32::from_le_bytes(v[pos..pos + 4].try_into().expect("4 bytes"));
+            pos += 4;
+            let amt_raw = u32::from_le_bytes(v[pos..pos + 4].try_into().expect("4 bytes"));
+            pos += 4;
 
             *item = KlineData { dt, code: self.code,
                                 open:   { base += open; base as f64 / 1000. },
                                 close:  real_price(close, base),
-                                high:   real_price(price(&v, &mut pos), base),
-                                low:    real_price(price(&v, &mut pos), base),
-                                vol:    { pos += 4; vol_amount(u32_from_le_bytes(&v, pos - 4) as i32) },
-                                amount: { pos += 4; vol_amount(u32_from_le_bytes(&v, pos - 4) as i32) }};
+                                high:   real_price(high, base),
+                                low:    real_price(low, base),
+                                vol:    vol_amount(vol_raw as i32),
+                                amount: vol_amount(amt_raw as i32) };
 
             base += close;
+            parsed += 1;
         }
+        self.data.truncate(parsed);
         self.response = v;
     }
 

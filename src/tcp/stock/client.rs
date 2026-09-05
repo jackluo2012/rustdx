@@ -114,17 +114,19 @@ impl Client {
         loop {
             let bars = self.bars(market, code, CATEGORY_DAY, start, PAGE)?;
             let n = bars.len();
-            // 按时间正序插入（服务器返回的是从 start 往回数的数据，这里统一按升序存放）
-            let mut page: Vec<_> = bars;
-            page.reverse();
-            all.splice(0..0, page);
+            // 页内顺序不再假设（2026-09 实测部分服务器返回顺序与早前相反，
+            // 猜测与「当日分时协议变更」同期调整），统一在末端排序兜底。
+            all.extend(bars);
             if n < PAGE as usize {
                 break; // 历史尽头
             }
             if let Some(begin) = begin {
-                // 最旧的一页数据已经早于 begin，停止翻页
-                if let Some(oldest) = all.first()
-                    && DateTime::to_u32(oldest.dt.clone()) < begin
+                // 页内最旧数据已早于 begin，停止翻页（min 而非 first，顺序无关）
+                if let Some(oldest) = all
+                    .iter()
+                    .map(|b| DateTime::to_u32(b.dt.clone()))
+                    .min()
+                    && oldest < begin
                 {
                     break;
                 }
@@ -139,6 +141,8 @@ impl Client {
             let d = DateTime::to_u32(bar.dt.clone());
             begin.is_none_or(|b| d >= b) && end.is_none_or(|e| d <= e)
         });
+        // 契约：按日期升序（文档承诺「统一按升序存放」）
+        all.sort_by_key(|bar| DateTime::to_u32(bar.dt.clone()));
         Ok(all)
     }
 
