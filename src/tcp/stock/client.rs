@@ -20,6 +20,7 @@ use super::{
 };
 use crate::tcp::helper::DateTime;
 use crate::tcp::{Tcp, TcpConfig, Tdx};
+use chrono::Datelike;
 
 /// 高层客户端：持有连接，提供与 mootdx 对齐的语义化 API。
 #[derive(Debug)]
@@ -146,11 +147,26 @@ impl Client {
         Ok(all)
     }
 
-    /// 当日分时（mootdx `minute`）。⚠️ 部分服务器协议已变，异常时返回空。
+    /// 当日分时（mootdx `minute`）。
+    ///
+    /// ⚠️ 部分服务器 2026 起分时响应格式已变（数据前新增 market+code 头、编码改变），
+    /// 旧协议解析异常会返回空数据。本方法内置**自动回退**：当日分时接口解析为空
+    /// （协议不匹配）时，改用「今日历史分时接口」（[`HistoryMinuteTime`] 查询当天）
+    /// 取数——历史分时接口协议稳定、实测 240 点完整，这是 pytdx/mootdx 生态的
+    /// 同类解决方案（参见 pytdx#148、xmtdx）。
+    ///
+    /// 当日分时与今日历史分时返回相同的数据结构（每分钟一个价格/成交量点）。
     pub fn minute(&mut self, market: u16, code: &str) -> std::io::Result<Vec<MinuteTimeData>> {
         let mut mt = super::MinuteTime::new(market, code);
         mt.recv_parsed(&mut self.tcp)?;
-        Ok(mt.result().to_vec())
+        if !mt.result().is_empty() {
+            return Ok(mt.result().to_vec());
+        }
+
+        // 回退：当日分时接口不可用 → 今日历史分时接口（协议稳定）
+        let mut hmt = HistoryMinuteTime::new(market, code, today_yyyymmdd());
+        hmt.recv_parsed(&mut self.tcp)?;
+        Ok(hmt.result().to_vec())
     }
 
     /// 历史分时（mootdx `minutes`）。
@@ -248,6 +264,12 @@ impl Client {
     }
 }
 
+/// 今日日期，格式 YYYYMMDD（用于当日分时回退到今日历史分时）。
+fn today_yyyymmdd() -> u32 {
+    let today = chrono::Local::now().date_naive();
+    (today.year() * 10000 + today.month() as i32 * 100 + today.day() as i32) as u32
+}
+
 /// 避免与 facade 文档中的 `SecurityQuotes` 混淆的内部别名。
 use super::SecurityQuotes as SecurityQuotesRef;
 
@@ -266,5 +288,19 @@ mod tests {
             minute: 0,
         };
         assert_eq!(d.to_u32(), 20260901);
+    }
+
+    /// 回退辅助函数：今日日期必须为合法 8 位 YYYYMMDD，且与 chrono 本地日期一致。
+    #[test]
+    fn today_yyyymmdd_format() {
+        use super::today_yyyymmdd;
+        let v = today_yyyymmdd();
+        assert!(v >= 20000101 && v <= 20991231, "非法日期: {v}");
+        let today = chrono::Local::now().date_naive();
+        let expected = {
+            use chrono::Datelike;
+            (today.year() * 10000 + today.month() as i32 * 100 + today.day() as i32) as u32
+        };
+        assert_eq!(v, expected);
     }
 }

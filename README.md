@@ -128,10 +128,10 @@ tcp.reconnect()?;
 
 ## ⚠️ 已知问题（诚实声明）
 
-1. **当日分时**（`MinuteTime`）：2026 年起部分通达信服务器变更了分时响应格式，
-   pytdx/mootdx 同样无法解析。rustdx 内置防御性校验，解析异常时返回**空数据**
-   （不会输出垃圾数据）；历史分时不受影响（实测 240 点完整）。
-   逆向进展见 [pytdx #148](https://github.com/rainx/pytdx/issues/148)。
+1. **当日分时**（`Client::minute`）：2026 年起部分通达信服务器变更了分时响应格式，
+   pytdx/mootdx 同样无法解析。rustdx 内置**自动回退**——当日分时接口解析异常时
+   自动改用**今日历史分时接口**（`HistoryMinuteTime`，协议稳定、实测 240 点完整）
+   取数；非交易日返回空数据。逆向进展见 [pytdx #148](https://github.com/rainx/pytdx/issues/148)。
 2. **历史逐笔的买卖方向**：实测除 0=买、1=卖、2=中性外还会出现 5、8 等值
    （疑似集合竞价标记），服务器语义未公开，请谨慎使用该字段。
 3. **东财接口**（rustdx-cli 的 `east` 命令）：在代理/VPN（fake-IP DNS）环境下会被
