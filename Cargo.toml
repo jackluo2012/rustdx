@@ -1,6 +1,6 @@
 [package]
 name        = "rustdx-complete"
-version     = "1.3.0"
+version     = "1.5.0"
 edition     = "2024"
 license     = "MIT"
 description = "功能完整的 A 股数据获取库，完全对标 pytdx"

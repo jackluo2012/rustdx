@@ -34,7 +34,7 @@ rustdx-complete = "1.3.0"
 ## 🚀 快速开始（Client 高层 API）
 
 ```rust
-use rustdx_complete::tcp::stock::{market_of, Client};
+use rustdx_complete::tcp::stock::{market_of, Adj, Client};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 连接（内置 40 台服务器故障转移、心跳与重试）
@@ -53,6 +53,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("{}-{:02}-{:02} 收{:.2}", b.dt.year, b.dt.month, b.dt.day, b.close);
     }
 
+    // 批量拉取多只日K（内部连接池并行，顺序返回；单只失败不影响其他）
+    let batch = client.k_batch(&[(1, "600000"), (0, "000001"), (1, "600519")],
+                               Some(20260101), None, 4)?;
+    for row in &batch {
+        println!("{}: {} 根", row.code, row.result?.len());
+    }
+
+    // 复权日K（前复权：最新价 = 实际价；服务器不提供复权，本地按除权除息计算）
+    let qfq = client.k_adjusted(1, "600519", Adj::Qfq, Some(20240101), Some(20261231))?;
+    let hfq = client.k_adjusted(1, "600519", Adj::Hfq, Some(20240101), Some(20261231))?;
+
     // 概念板块（服务器真实数据，269 个板块）
     let blocks = client.block("block_gn.dat")?;
     let lidian: Vec<_> = blocks.iter().filter(|r| r.blockname == "锂电池").collect();
@@ -70,6 +81,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `bars` | `Client::bars` / `Kline` | 股票K线（5m/15m/30m/1h/日/周/月…，category 0-11） |
 | `index` / `index_bars` | `Client::index_bars` / `IndexKline` | 指数K线，含上涨/下跌家数 |
 | `k` | `Client::k` | 按日期区间拉日K线，自动翻页 |
+| —（rustdx 新增） | `Client::k_batch` | 批量日K，内部连接池并行，单只失败不影响其他 |
+| —（rustdx 新增） | `Client::k_adjusted` | 前/后复权日K，本地按除权除息计算 |
 | `minute` | `Client::minute` / `MinuteTime` | 当日分时 ⚠️ 见已知问题 |
 | `minutes` | `Client::history_minute` / `HistoryMinuteTime` | 历史分时 |
 | `transaction` | `Client::transaction` / `Transaction` | 当日逐笔成交 |

@@ -15,12 +15,15 @@
 
 use super::{
     BlockRecord, CompanyInfoCategory, CompanyInfoCategoryItem, CompanyInfoContent, FinanceInfoData,
-    HistoryMinuteTime, HistoryTransaction, IndexKline, Kline, MinuteTimeData, QuoteData,
-    SecurityListData, TransactionData, Xdxr,
+    HistoryMinuteTime, HistoryTransaction, IndexKline, Kline, KlineData, MinuteTimeData, QuoteData,
+    SecurityListData, TransactionData, Xdxr, XdxrData,
 };
+use crate::pool::ConnectionPool;
 use crate::tcp::helper::DateTime;
 use crate::tcp::{Tcp, TcpConfig, Tdx};
 use chrono::Datelike;
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
 
 /// 高层客户端：持有连接，提供与 mootdx 对齐的语义化 API。
 #[derive(Debug)]
@@ -107,44 +110,150 @@ impl Client {
         begin: Option<u32>,
         end: Option<u32>,
     ) -> std::io::Result<Vec<super::KlineData<'a>>> {
-        const PAGE: u16 = 800;
-        const CATEGORY_DAY: u16 = 9;
+        fetch_k(&mut self.tcp, market, code, begin, end)
+    }
 
-        let mut all = Vec::new();
-        let mut start = 0u16;
-        loop {
-            let bars = self.bars(market, code, CATEGORY_DAY, start, PAGE)?;
-            let n = bars.len();
-            // 页内顺序不再假设（2026-09 实测部分服务器返回顺序与早前相反，
-            // 猜测与「当日分时协议变更」同期调整），统一在末端排序兜底。
-            all.extend(bars);
-            if n < PAGE as usize {
-                break; // 历史尽头
-            }
-            if let Some(begin) = begin {
-                // 页内最旧数据已早于 begin，停止翻页（min 而非 first，顺序无关）
-                if let Some(oldest) = all
-                    .iter()
-                    .map(|b| DateTime::to_u32(b.dt.clone()))
-                    .min()
-                    && oldest < begin
-                {
-                    break;
-                }
-            }
-            start = start.saturating_add(PAGE);
-            if start == 0 {
-                break; // u16 溢出，服务器历史已耗尽
-            }
+    /// 批量拉取多只股票日K（内部连接池并行，不占用当前连接）。
+    ///
+    /// # 参数
+    ///
+    /// - `stocks`: `(market, code)` 列表（market: 0=深市、1=沪市）；
+    /// - `begin`/`end`: 日期区间（YYYYMMDD），`None` 不设限；
+    /// - `max_parallel`: 并行连接数上限；传 `0` 按 CPU 核数自动。
+    ///   建议 4~16——服务器有连接数限制，过大会触发拒连。
+    ///
+    /// # 返回
+    ///
+    /// 按输入顺序返回；单只股票拉取失败不影响其他股票
+    /// （失败信息在对应 [`BatchKline::result`] 中）。
+    ///
+    /// # 示例
+    ///
+    /// ```ignore
+    /// use rustdx_complete::tcp::stock::Client;
+    ///
+    /// let client = Client::new()?;
+    /// let rows = client.k_batch(&[(1, "600000"), (0, "000001"), (1, "600519")],
+    ///                           Some(20260101), None, 4)?;
+    /// for row in rows {
+    ///     println!("{}: {} 根", row.code, row.result?.len());
+    /// }
+    /// ```
+    pub fn k_batch<'a>(
+        &self,
+        stocks: &[(u16, &'a str)],
+        begin: Option<u32>,
+        end: Option<u32>,
+        max_parallel: usize,
+    ) -> std::io::Result<Vec<BatchKline<'a>>> {
+        if stocks.is_empty() {
+            return Ok(Vec::new());
         }
+        let workers = match max_parallel {
+            0 => std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4),
+            n => n,
+        }
+        .min(stocks.len())
+        .max(1);
 
-        all.retain(|bar| {
-            let d = DateTime::to_u32(bar.dt.clone());
-            begin.is_none_or(|b| d >= b) && end.is_none_or(|e| d <= e)
+        let pool = ConnectionPool::new(workers)?;
+        let queue: Arc<Mutex<VecDeque<(usize, u16, &'a str)>>> = Arc::new(Mutex::new(
+            stocks
+                .iter()
+                .enumerate()
+                .map(|(i, &(m, c))| (i, m, c))
+                .collect(),
+        ));
+        let results: Arc<Mutex<Vec<Option<std::io::Result<Vec<KlineData<'a>>>>>>> =
+            Arc::new(Mutex::new((0..stocks.len()).map(|_| None).collect()));
+
+        // 固定 worker 数 = 连接池大小：每个 worker 持一条连接处理队列，
+        // 避免反复建连/归还的锁竞争，也不会触发连接池饱和错误。
+        std::thread::scope(|s| {
+            for _ in 0..workers {
+                let queue = Arc::clone(&queue);
+                let results = Arc::clone(&results);
+                let pool = pool.clone();
+                s.spawn(move || {
+                    let Ok(mut conn) = pool.get_connection() else {
+                        return;
+                    };
+                    loop {
+                        let item = queue.lock().unwrap().pop_front();
+                        let Some((idx, market, code)) = item else {
+                            break;
+                        };
+                        let r = conn.execute(|tcp| fetch_k(tcp, market, code, begin, end));
+                        results.lock().unwrap()[idx] = Some(r);
+                    }
+                });
+            }
         });
-        // 契约：按日期升序（文档承诺「统一按升序存放」）
-        all.sort_by_key(|bar| DateTime::to_u32(bar.dt.clone()));
-        Ok(all)
+
+        let mut out = Vec::with_capacity(stocks.len());
+        for (i, &(market, code)) in stocks.iter().enumerate() {
+            let result = results.lock().unwrap()[i].take().unwrap_or_else(|| {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "worker 未能处理该股票（连接建立失败）",
+                ))
+            });
+            out.push(BatchKline {
+                market,
+                code,
+                result,
+            });
+        }
+        Ok(out)
+    }
+
+    /// 按日期区间拉取**复权**日K线（前复权/后复权，本地计算）。
+    ///
+    /// 通达信服务器返回的 K 线均为不复权数据（实测请求中的复权字段实为
+    /// 「取样步长」，见 `tests/adj_field_probe.rs`），因此本方法在本地用
+    /// 除权除息事件（[`Client::xdxr`]）计算复权价：算法与通达信/akshare
+    /// 一致，除权参考价 `(preclose*10 - fh + pg*pgj) / (10 + pg + sg)`，
+    /// 除权日价格按 `preclose_adj / preclose` 缩放，逐日累积。
+    ///
+    /// 复权只调整 OHLC 价格；`vol`/`amount` 保持原始值。
+    ///
+    /// # 参数
+    ///
+    /// - `adj`: 前复权（[`Adj::Qfq`]，最新价 = 实际价）或后复权
+    ///   （[`Adj::Hfq`]，上市首日价 = 实际价）；
+    /// - `begin`/`end`: 日期区间（YYYYMMDD），`None` 不设限。
+    pub fn k_adjusted<'a>(
+        &mut self,
+        market: u16,
+        code: &'a str,
+        adj: Adj,
+        begin: Option<u32>,
+        end: Option<u32>,
+    ) -> std::io::Result<Vec<super::KlineData<'a>>> {
+        // 复权因子需从上市日起连续累积，先全量拉取再在本地过滤区间
+        let all = fetch_k(&mut self.tcp, market, code, None, None)?;
+        if all.is_empty() {
+            return Ok(all);
+        }
+        let xdxrs = self.xdxr(market, code)?;
+        let multipliers = adjusted_multipliers(&all, &xdxrs, adj);
+
+        let out: Vec<super::KlineData<'a>> = all
+            .into_iter()
+            .zip(multipliers)
+            .filter(|(bar, _)| {
+                let d = DateTime::to_u32(bar.dt.clone());
+                begin.is_none_or(|b| d >= b) && end.is_none_or(|e| d <= e)
+            })
+            .map(|(mut bar, m)| {
+                bar.open *= m;
+                bar.high *= m;
+                bar.low *= m;
+                bar.close *= m;
+                bar
+            })
+            .collect();
+        Ok(out)
     }
 
     /// 当日分时（mootdx `minute`）。
@@ -273,7 +382,137 @@ fn today_yyyymmdd() -> u32 {
 /// 避免与 facade 文档中的 `SecurityQuotes` 混淆的内部别名。
 use super::SecurityQuotes as SecurityQuotesRef;
 
-#[cfg(test)]
+/// 从给定连接拉取单只股票日K：自动翻页、日期区间过滤、按日期升序排序。
+///
+/// 与 `Client::k` 共用同一套逻辑，供 `k_batch` 在连接池连接上复用。
+fn fetch_k<'a>(
+    tcp: &mut Tcp,
+    market: u16,
+    code: &'a str,
+    begin: Option<u32>,
+    end: Option<u32>,
+) -> std::io::Result<Vec<KlineData<'a>>> {
+    const PAGE: u16 = 800;
+    const CATEGORY_DAY: u16 = 9;
+
+    let mut all = Vec::new();
+    let mut start = 0u16;
+    loop {
+        let mut kline = Kline::new(market, code, CATEGORY_DAY, start, PAGE);
+        kline.recv_parsed(tcp)?;
+        let bars = kline.result().to_vec();
+        let n = bars.len();
+        // 页内顺序不再假设（2026-09 实测部分服务器返回顺序与早前相反，
+        // 猜测与「当日分时协议变更」同期调整），统一在末端排序兜底。
+        all.extend(bars);
+        if n < PAGE as usize {
+            break; // 历史尽头
+        }
+        if let Some(begin) = begin {
+            // 页内最旧数据已早于 begin，停止翻页（min 而非 first，顺序无关）
+            if let Some(oldest) = all
+                .iter()
+                .map(|b| DateTime::to_u32(b.dt.clone()))
+                .min()
+                && oldest < begin
+            {
+                break;
+            }
+        }
+        start = start.saturating_add(PAGE);
+        if start == 0 {
+            break; // u16 溢出，服务器历史已耗尽
+        }
+    }
+
+    all.retain(|bar| {
+        let d = DateTime::to_u32(bar.dt.clone());
+        begin.is_none_or(|b| d >= b) && end.is_none_or(|e| d <= e)
+    });
+    // 契约：按日期升序（文档承诺「统一按升序存放」）
+    all.sort_by_key(|bar| DateTime::to_u32(bar.dt.clone()));
+    Ok(all)
+}
+
+/// 批量 K 线单项结果。
+///
+/// `result` 为该股票独立的结果：`Ok` 含按日期升序的日 K 数据，
+/// `Err` 为该股票拉取失败（不影响其他股票）。
+#[derive(Debug)]
+pub struct BatchKline<'a> {
+    /// 市场代码（0=深市、1=沪市）
+    pub market: u16,
+    /// 6 位股票代码
+    pub code: &'a str,
+    /// 该股票拉取结果
+    pub result: std::io::Result<Vec<KlineData<'a>>>,
+}
+
+/// 复权方式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Adj {
+    /// 前复权：以最新价为基准，历史价按比例缩放（最新价 = 实际价）。
+    Qfq,
+    /// 后复权：以上市首日为基准，后续价格按比例放大（首日价 = 实际价）。
+    Hfq,
+}
+
+/// 计算每根 K 线的复权乘数（基于收盘价序列与除权除息事件）。
+///
+/// 算法（与通达信/akshare 一致）：
+/// - 除权参考价 `preclose_adj = (preclose*10 - fh + pg*pgj) / (10 + pg + sg)`
+///   （`fh`=每 10 股派现、`sg`=每 10 股送转、`pg`=每 10 股配股、`pgj`=配股价）；
+/// - 除权日价格缩放乘数 `scale *= preclose_adj / preclose`，逐日累积；
+///   `preclose` 始终为**除权日前一交易日实际收盘**（停牌顺延到下一交易日处理）；
+/// - 后复权乘数 `= 1/scale`（除权后价格放大回除权前量纲，首日价不变）；
+/// - 前复权乘数 `= scale[last]/scale`（以最新价为基准，最新价不变）。
+///
+/// 只使用 `category == 1`（除权除息）事件；增发/回购/转配等不改变价格基准。
+fn adjusted_multipliers(days: &[KlineData<'_>], xdxrs: &[XdxrData], adj: Adj) -> Vec<f64> {
+    let mut events: Vec<(u32, f32, f32, f32, f32)> = xdxrs
+        .iter()
+        .filter(|x| x.category == 1)
+        .map(|x| (x.date, x.fh_qltp, x.sg_hltp, x.pg_hzgb, x.pgj_qzgb))
+        .collect();
+    events.sort_by_key(|e| e.0);
+    let mut ev = events.iter().peekable();
+
+    let mut scales: Vec<f64> = Vec::with_capacity(days.len());
+    let mut scale = 1.0f64;
+    let mut preclose = days.first().map(|d| d.close).unwrap_or(0.0);
+    for d in days {
+        let date = DateTime::to_u32(d.dt.clone());
+        // 应用所有日期 ≤ 当前交易日且尚未应用的除权事件（含停牌场景：
+        // 除权日无 K 线时顺延到下一个交易日）
+        loop {
+            let Some(&&(edate, fh, sg, pg, pgj)) = ev.peek() else {
+                break;
+            };
+            if edate > date {
+                break;
+            }
+            let preclose_adj = (preclose * 10.0 - fh as f64 + pg as f64 * pgj as f64)
+                / (10.0 + pg as f64 + sg as f64);
+            if preclose_adj > 0.0 && preclose > 0.0 {
+                scale *= preclose_adj / preclose;
+            }
+            ev.next();
+        }
+        scales.push(scale);
+        preclose = d.close;
+    }
+
+    let last = *scales.last().unwrap_or(&1.0);
+    scales
+        .into_iter()
+        .map(|s| match adj {
+            Adj::Hfq => 1.0 / s,
+            Adj::Qfq => last / s,
+        })
+        .map(|m| if m.is_finite() { m } else { 1.0 })
+        .collect()
+}
+
 mod tests {
 
     #[test]
@@ -288,6 +527,103 @@ mod tests {
             minute: 0,
         };
         assert_eq!(d.to_u32(), 20260901);
+    }
+
+    #[test]
+    fn adjusted_multipliers_no_xdxr() {
+        use super::adjusted_multipliers;
+        use super::Adj;
+        // 无除权：scale 恒 1 → 前/后复权乘数均为 1
+        let days = vec![
+            kd(20260101, 10.0),
+            kd(20260102, 11.0),
+            kd(20260105, 12.0),
+        ];
+        assert_eq!(adjusted_multipliers(&days, &[], Adj::Qfq), vec![1.0, 1.0, 1.0]);
+        assert_eq!(adjusted_multipliers(&days, &[], Adj::Hfq), vec![1.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn adjusted_multipliers_split() {
+        use super::adjusted_multipliers;
+        use super::Adj;
+        // 10 送 10：除权参考价 = 前收/2 → scale 减半
+        let days = vec![
+            kd(20260105, 20.0),
+            kd(20260106, 10.0), // 除权日，前收 20 → 参考价 10（10送10）
+            kd(20260107, 10.5),
+        ];
+        let xdxrs = vec![xdxr(20260106, 0.0, 10.0, 0.0, 0.0)]; // 每 10 股送 10
+        // 后复权：除权后价格放大回除权前量纲
+        let m = adjusted_multipliers(&days, &xdxrs, Adj::Hfq);
+        assert!((m[0] - 1.0).abs() < 1e-9);
+        assert!((m[1] - 2.0).abs() < 1e-9, "除权日乘数应为 2，实际 {m:?}");
+        assert!((m[2] - 2.0).abs() < 1e-9);
+        // 前复权：最新价不变，历史价按比例缩小
+        let m = adjusted_multipliers(&days, &xdxrs, Adj::Qfq);
+        assert!((m[2] - 1.0).abs() < 1e-9);
+        assert!((m[0] - 0.5).abs() < 1e-9, "除权前乘数应为 0.5，实际 {m:?}");
+    }
+
+    #[test]
+    fn adjusted_multipliers_cash_and_rights() {
+        use super::adjusted_multipliers;
+        use super::Adj;
+        // 每 10 股派 5 元 + 每 10 股配 3 股（配股价 2 元）：
+        // 参考价 = (20*10 - 5 + 3*2) / (10 + 3) = 201/13 ≈ 15.46
+        let days = vec![kd(20260105, 20.0), kd(20260106, 15.0), kd(20260107, 15.5)];
+        let xdxrs = vec![xdxr(20260106, 5.0, 0.0, 3.0, 2.0)];
+        let m = adjusted_multipliers(&days, &xdxrs, Adj::Hfq);
+        assert!(
+            (m[1] - (13.0 * 20.0 / 201.0)).abs() < 1e-9,
+            "实际 {m:?}"
+        );
+    }
+
+    #[test]
+    fn adjusted_multipliers_suspended_xdxr_day() {
+        use super::adjusted_multipliers;
+        use super::Adj;
+        // 除权日为停牌日（无 K 线）：事件顺延到下一交易日处理，
+        // 仍用除权前最后一个交易日收盘作为 preclose
+        let days = vec![kd(20260102, 20.0), kd(20260106, 10.0)];
+        let xdxrs = vec![xdxr(20260105, 0.0, 10.0, 0.0, 0.0)]; // 01-05 除权，01-06 才恢复交易
+        let m = adjusted_multipliers(&days, &xdxrs, Adj::Hfq);
+        assert!((m[0] - 1.0).abs() < 1e-9);
+        assert!((m[1] - 2.0).abs() < 1e-9, "停牌顺延后乘数应为 2，实际 {m:?}");
+    }
+
+    fn kd(date: u32, close: f64) -> super::KlineData<'static> {
+        let (y, m, d) = (date / 10000, date / 100 % 100, date % 100);
+        super::KlineData {
+            dt: crate::tcp::helper::DateTime {
+                year: y as u16,
+                month: m as u16,
+                day: d as u16,
+                hour: 15,
+                minute: 0,
+            },
+            code: "",
+            open: close,
+            close,
+            high: close,
+            low: close,
+            vol: 0.0,
+            amount: 0.0,
+        }
+    }
+
+    fn xdxr(date: u32, fh: f32, sg: f32, pg: f32, pgj: f32) -> super::XdxrData {
+        super::XdxrData {
+            market: 1,
+            code: "600000".into(),
+            date,
+            category: 1,
+            fh_qltp: fh,
+            pgj_qzgb: pgj,
+            sg_hltp: sg,
+            pg_hzgb: pg,
+        }
     }
 
     /// 回退辅助函数：今日日期必须为合法 8 位 YYYYMMDD，且与 chrono 本地日期一致。

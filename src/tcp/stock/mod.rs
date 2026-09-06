@@ -37,7 +37,7 @@ mod company_info;
 pub use company_info::{CompanyInfoCategory, CompanyInfoCategoryItem, CompanyInfoContent};
 
 mod client;
-pub use client::Client;
+pub use client::{Adj, BatchKline, Client};
 
 /// 根据股票代码推断市场代码（对应 mootdx 的 `get_stock_market`）。
 ///
