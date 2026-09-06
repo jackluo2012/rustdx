@@ -15,6 +15,7 @@ use std::{
         mpsc,
     },
     thread,
+    time::Instant,
 };
 
 const BUFFER_SIZE: usize = 32 * (1 << 20); // 32M
@@ -30,7 +31,10 @@ where
     F: Fn(&str, &Path) -> eyre::Result<Vec<T>> + Send + Sync,
     T: serde::Serialize + Send,
 {
+    let start = Instant::now();
     let hm = cmd.stocklist();
+    let mut total_files = 0usize;
+    let mut total_rows = 0usize;
     for dir in &cmd.path {
         // 收集 (完整代码, 文件路径)，代码含市场前缀（如 `sz000001`、`sz200b07`）
         let work: Vec<(String, std::path::PathBuf)> = filter_file(dir)?
@@ -75,6 +79,7 @@ where
             }
             drop(tx); // 关闭发送端，主线程的迭代才能结束
             for v in rx {
+                total_rows += v.len();
                 for t in v {
                     wtr.serialize(t)?;
                 }
@@ -82,9 +87,24 @@ where
             Ok::<(), eyre::Report>(())
         })?;
 
+        total_files += count.load(Ordering::Relaxed);
         print(dir, count.load(Ordering::Relaxed), take);
     }
-    wtr.flush().map_err(|e| e.into())
+    wtr.flush()?;
+
+    // 解析后校验报告
+    let elapsed = start.elapsed();
+    let out_size = fs::metadata(&cmd.output)
+        .map(|m| m.len() as f64 / (1024.0 * 1024.0))
+        .unwrap_or(0.0);
+    info!(
+        "解析完成 → 文件 {} 个 / 行 {} 行 / 输出 {:.1} MiB / 耗时 {:.1}s",
+        total_files,
+        total_rows,
+        out_size,
+        elapsed.as_secs_f64()
+    );
+    Ok(())
 }
 
 /// 并发解析并输出 CSV（无复权）。
