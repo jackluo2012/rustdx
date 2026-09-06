@@ -32,6 +32,11 @@ pub struct Client {
     pub tcp: Tcp,
 }
 
+/// `k_batch` 的任务队列：`(输入序号, market, code)`。
+type BatchQueue<'a> = Arc<Mutex<VecDeque<(usize, u16, &'a str)>>>;
+/// `k_batch` 的结果槽：按输入序号存放各股票的拉取结果。
+type BatchResults<'a> = Arc<Mutex<Vec<Option<std::io::Result<Vec<KlineData<'a>>>>>>>;
+
 impl Client {
     /// 连接服务器（内置故障转移），等价于 `Tcp::new()`。
     pub fn new() -> std::io::Result<Self> {
@@ -67,7 +72,9 @@ impl Client {
     /// 实时行情快照（mootdx `quotes`）。返回 owned 数据。
     pub fn quotes(&mut self, stocks: &[(u16, &str)]) -> std::io::Result<Vec<QuoteData>> {
         let mut quotes = SecurityQuotesRef::new(stocks.to_vec());
-        quotes.recv_parsed(&mut self.tcp)?;
+        quotes
+            .recv_parsed(&mut self.tcp)
+            .map_err(|e| ctx_err(e, format_args!("Client::quotes(n={})", stocks.len())))?;
         Ok(quotes.result().to_vec())
     }
 
@@ -81,7 +88,12 @@ impl Client {
         count: u16,
     ) -> std::io::Result<Vec<super::KlineData<'a>>> {
         let mut kline = Kline::new(market, code, category, start, count);
-        kline.recv_parsed(&mut self.tcp)?;
+        kline.recv_parsed(&mut self.tcp).map_err(|e| {
+            ctx_err(
+                e,
+                format_args!("Client::bars(market={market}, code={code}, category={category})"),
+            )
+        })?;
         Ok(kline.result().to_vec())
     }
 
@@ -95,7 +107,12 @@ impl Client {
         count: u16,
     ) -> std::io::Result<Vec<super::IndexKlineData<'a>>> {
         let mut kline = IndexKline::new(market, code, category, start, count);
-        kline.recv_parsed(&mut self.tcp)?;
+        kline.recv_parsed(&mut self.tcp).map_err(|e| {
+            ctx_err(
+                e,
+                format_args!("Client::index_bars(market={market}, code={code})"),
+            )
+        })?;
         Ok(kline.result().to_vec())
     }
 
@@ -111,6 +128,7 @@ impl Client {
         end: Option<u32>,
     ) -> std::io::Result<Vec<super::KlineData<'a>>> {
         fetch_k(&mut self.tcp, market, code, begin, end)
+            .map_err(|e| ctx_err(e, format_args!("Client::k(market={market}, code={code})")))
     }
 
     /// 批量拉取多只股票日K（内部连接池并行，不占用当前连接）。
@@ -157,14 +175,14 @@ impl Client {
         .max(1);
 
         let pool = ConnectionPool::new(workers)?;
-        let queue: Arc<Mutex<VecDeque<(usize, u16, &'a str)>>> = Arc::new(Mutex::new(
+        let queue: BatchQueue<'a> = Arc::new(Mutex::new(
             stocks
                 .iter()
                 .enumerate()
                 .map(|(i, &(m, c))| (i, m, c))
                 .collect(),
         ));
-        let results: Arc<Mutex<Vec<Option<std::io::Result<Vec<KlineData<'a>>>>>>> =
+        let results: BatchResults<'a> =
             Arc::new(Mutex::new((0..stocks.len()).map(|_| None).collect()));
 
         // 固定 worker 数 = 连接池大小：每个 worker 持一条连接处理队列，
@@ -183,7 +201,11 @@ impl Client {
                         let Some((idx, market, code)) = item else {
                             break;
                         };
-                        let r = conn.execute(|tcp| fetch_k(tcp, market, code, begin, end));
+                        let r = conn.execute(|tcp| {
+                            fetch_k(tcp, market, code, begin, end).map_err(|e| {
+                                ctx_err(e, format_args!("k_batch(market={market}, code={code})"))
+                            })
+                        });
                         results.lock().unwrap()[idx] = Some(r);
                     }
                 });
@@ -193,10 +215,7 @@ impl Client {
         let mut out = Vec::with_capacity(stocks.len());
         for (i, &(market, code)) in stocks.iter().enumerate() {
             let result = results.lock().unwrap()[i].take().unwrap_or_else(|| {
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "worker 未能处理该股票（连接建立失败）",
-                ))
+                Err(std::io::Error::other("worker 未能处理该股票（连接建立失败）"))
             });
             out.push(BatchKline {
                 market,
@@ -231,7 +250,12 @@ impl Client {
         end: Option<u32>,
     ) -> std::io::Result<Vec<super::KlineData<'a>>> {
         // 复权因子需从上市日起连续累积，先全量拉取再在本地过滤区间
-        let all = fetch_k(&mut self.tcp, market, code, None, None)?;
+        let all = fetch_k(&mut self.tcp, market, code, None, None).map_err(|e| {
+            ctx_err(
+                e,
+                format_args!("Client::k_adjusted(market={market}, code={code})"),
+            )
+        })?;
         if all.is_empty() {
             return Ok(all);
         }
@@ -266,15 +290,19 @@ impl Client {
     ///
     /// 当日分时与今日历史分时返回相同的数据结构（每分钟一个价格/成交量点）。
     pub fn minute(&mut self, market: u16, code: &str) -> std::io::Result<Vec<MinuteTimeData>> {
+        let ctx = format_args!("Client::minute(market={market}, code={code})");
         let mut mt = super::MinuteTime::new(market, code);
-        mt.recv_parsed(&mut self.tcp)?;
+        mt.recv_parsed(&mut self.tcp)
+            .map_err(|e| ctx_err(e, ctx))?;
         if !mt.result().is_empty() {
             return Ok(mt.result().to_vec());
         }
 
         // 回退：当日分时接口不可用 → 今日历史分时接口（协议稳定）
         let mut hmt = HistoryMinuteTime::new(market, code, today_yyyymmdd());
-        hmt.recv_parsed(&mut self.tcp)?;
+        hmt.recv_parsed(&mut self.tcp).map_err(|e| {
+            ctx_err(e, format_args!("{ctx}（回退到今日历史分时）"))
+        })?;
         Ok(hmt.result().to_vec())
     }
 
@@ -286,7 +314,12 @@ impl Client {
         date: u32,
     ) -> std::io::Result<Vec<MinuteTimeData>> {
         let mut mt = HistoryMinuteTime::new(market, code, date);
-        mt.recv_parsed(&mut self.tcp)?;
+        mt.recv_parsed(&mut self.tcp).map_err(|e| {
+            ctx_err(
+                e,
+                format_args!("Client::history_minute(market={market}, code={code}, date={date})"),
+            )
+        })?;
         Ok(mt.result().to_vec())
     }
 
@@ -299,7 +332,12 @@ impl Client {
         count: u16,
     ) -> std::io::Result<Vec<TransactionData>> {
         let mut tx = super::Transaction::new(market, code, start, count);
-        tx.recv_parsed(&mut self.tcp)?;
+        tx.recv_parsed(&mut self.tcp).map_err(|e| {
+            ctx_err(
+                e,
+                format_args!("Client::transaction(market={market}, code={code})"),
+            )
+        })?;
         Ok(tx.result().to_vec())
     }
 
@@ -313,49 +351,72 @@ impl Client {
         date: u32,
     ) -> std::io::Result<Vec<TransactionData>> {
         let mut tx = HistoryTransaction::new(market, code, start, count, date);
-        tx.recv_parsed(&mut self.tcp)?;
+        tx.recv_parsed(&mut self.tcp).map_err(|e| {
+            ctx_err(
+                e,
+                format_args!("Client::history_transaction(market={market}, code={code})"),
+            )
+        })?;
         Ok(tx.result().to_vec())
     }
 
     /// 财务信息（mootdx `finance`）。
     pub fn finance(&mut self, market: u16, code: &str) -> std::io::Result<FinanceInfoData> {
         let mut fin = super::FinanceInfo::new(market as u8, code);
-        fin.recv_parsed(&mut self.tcp)?;
+        fin.recv_parsed(&mut self.tcp).map_err(|e| {
+            ctx_err(
+                e,
+                format_args!("Client::finance(market={market}, code={code})"),
+            )
+        })?;
         Ok(fin.result().first().cloned().unwrap_or_default())
     }
 
     /// 除权除息信息（mootdx `xdxr`）。
     pub fn xdxr(&mut self, market: u16, code: &str) -> std::io::Result<Vec<super::XdxrData>> {
         let mut xdxr = Xdxr::new(market, code);
-        xdxr.recv_parsed(&mut self.tcp)?;
+        xdxr.recv_parsed(&mut self.tcp).map_err(|e| {
+            ctx_err(e, format_args!("Client::xdxr(market={market}, code={code})"))
+        })?;
         Ok(xdxr.result().to_vec())
     }
 
     /// 板块文件（mootdx `block`），如 `"block_gn.dat"` 概念板块。
     pub fn block(&mut self, block_file: &str) -> crate::Result<Vec<BlockRecord>> {
-        super::get_block_info(&mut self.tcp, block_file)
+        super::get_block_info(&mut self.tcp, block_file).map_err(|e| {
+            crate::Error::Io(std::io::Error::other(format!("Client::block({block_file}): {e}")))
+        })
     }
 
     /// 证券数量（mootdx `stock_count`）。
     pub fn stock_count(&mut self, market: u16) -> std::io::Result<u16> {
         let mut sc = super::super::basic::SecurityCount::new(market);
-        Ok(*sc.recv_parsed(&mut self.tcp)?)
+        let c = sc
+            .recv_parsed(&mut self.tcp)
+            .map_err(|e| ctx_err(e, format_args!("Client::stock_count(market={market})")))?;
+        Ok(*c)
     }
 
     /// 全部证券列表（mootdx `stocks`），自动分页聚合。
     pub fn stocks(&mut self, market: u16) -> crate::Result<Vec<SecurityListData>> {
-        super::stocks(&mut self.tcp, market)
+        super::stocks(&mut self.tcp, market).map_err(|e| {
+            crate::Error::Io(std::io::Error::other(format!("Client::stocks(market={market}): {e}")))
+        })
     }
 
     /// F10 公司资料全部栏目（mootdx `F10`），返回 `(栏目名, 内容)`。
     pub fn f10(&mut self, market: u16, code: &str) -> std::io::Result<Vec<(String, String)>> {
+        let ctx = format_args!("Client::f10(market={market}, code={code})");
         let mut cat = CompanyInfoCategory::new(market, code);
-        cat.recv_parsed(&mut self.tcp)?;
+        cat.recv_parsed(&mut self.tcp)
+            .map_err(|e| ctx_err(e, ctx))?;
         let mut result = Vec::with_capacity(cat.result().len());
         for item in cat.result() {
             let mut content =
                 CompanyInfoContent::new(market, code, &item.filename, item.start, item.length);
-            content.recv_parsed(&mut self.tcp)?;
+            content.recv_parsed(&mut self.tcp).map_err(|e| {
+                ctx_err(e, format_args!("{ctx}（栏目 {}）", item.name))
+            })?;
             result.push((item.name.clone(), std::mem::take(&mut content.data)));
         }
         Ok(result)
@@ -368,7 +429,12 @@ impl Client {
         code: &str,
     ) -> std::io::Result<Vec<CompanyInfoCategoryItem>> {
         let mut cat = CompanyInfoCategory::new(market, code);
-        cat.recv_parsed(&mut self.tcp)?;
+        cat.recv_parsed(&mut self.tcp).map_err(|e| {
+            ctx_err(
+                e,
+                format_args!("Client::f10_categories(market={market}, code={code})"),
+            )
+        })?;
         Ok(cat.result().to_vec())
     }
 }
@@ -377,6 +443,11 @@ impl Client {
 fn today_yyyymmdd() -> u32 {
     let today = chrono::Local::now().date_naive();
     (today.year() * 10000 + today.month() as i32 * 100 + today.day() as i32) as u32
+}
+
+/// 给 IO 错误附加接口上下文（保留错误 kind，便于调用方按 kind 分支处理）。
+fn ctx_err(e: std::io::Error, ctx: std::fmt::Arguments<'_>) -> std::io::Error {
+    std::io::Error::new(e.kind(), format!("{ctx}: {e}"))
 }
 
 /// 避免与 facade 文档中的 `SecurityQuotes` 混淆的内部别名。
@@ -484,10 +555,7 @@ fn adjusted_multipliers(days: &[KlineData<'_>], xdxrs: &[XdxrData], adj: Adj) ->
         let date = DateTime::to_u32(d.dt.clone());
         // 应用所有日期 ≤ 当前交易日且尚未应用的除权事件（含停牌场景：
         // 除权日无 K 线时顺延到下一个交易日）
-        loop {
-            let Some(&&(edate, fh, sg, pg, pgj)) = ev.peek() else {
-                break;
-            };
+        while let Some(&&(edate, fh, sg, pg, pgj)) = ev.peek() {
             if edate > date {
                 break;
             }
@@ -513,6 +581,7 @@ fn adjusted_multipliers(days: &[KlineData<'_>], xdxrs: &[XdxrData], adj: Adj) ->
         .collect()
 }
 
+#[cfg(test)]
 mod tests {
 
     #[test]
@@ -631,7 +700,7 @@ mod tests {
     fn today_yyyymmdd_format() {
         use super::today_yyyymmdd;
         let v = today_yyyymmdd();
-        assert!(v >= 20000101 && v <= 20991231, "非法日期: {v}");
+        assert!((20000101..=20991231).contains(&v), "非法日期: {v}");
         let today = chrono::Local::now().date_naive();
         let expected = {
             use chrono::Datelike;

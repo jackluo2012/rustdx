@@ -127,7 +127,20 @@ let mut tcp = Tcp::with_config(&cfg)?;
 // 心跳 / 重连 / 自动重试
 tcp.heartbeat()?;
 tcp.reconnect()?;
+
+// 断线自动重连：0 = 关闭（默认，保持旧行为）；1~2 = 请求失败时自动重连并重发
+// 行情请求是幂等的，长时运行的策略程序建议开启，避免偶发断线后整条链路失败
+let cfg = TcpConfig {
+    timeout: Duration::from_secs(5),
+    auto_reconnect: 2,
+    ..Default::default()
+};
+let mut tcp = Tcp::with_config(&cfg)?;
 ```
+
+> 所有 `Client` 方法（`quotes`/`k`/`k_batch`/`k_adjusted`/`minute`/`xdxr` 等）出错时，
+> 错误信息都会附带**接口名 + 市场/代码 + 字段**上下文（如
+> `k(1, 600519): 服务器无响应`），保留原始错误类型，便于直接定位是哪个请求、哪只股票失败。
 
 ## 📊 附加模块
 

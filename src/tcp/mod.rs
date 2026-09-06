@@ -31,6 +31,9 @@ pub struct TcpConfig {
     pub timeout: Duration,
     /// 指定服务器地址。`None` 表示使用 [`ip::STOCK_IP`] 列表自动选择。
     pub ip: Option<SocketAddr>,
+    /// 请求失败时自动重连重试的次数（每次失败先重连、再重发请求）。
+    /// 默认 `0` = 不自动重试（与旧版行为一致）；日常使用建议 `1~2`。
+    pub auto_reconnect: usize,
 }
 
 impl Default for TcpConfig {
@@ -38,6 +41,7 @@ impl Default for TcpConfig {
         Self {
             timeout: TIMEOUT,
             ip: None,
+            auto_reconnect: 0,
         }
     }
 }
@@ -48,6 +52,7 @@ impl TcpConfig {
         Self {
             timeout,
             ip: Some(ip::STOCK_IP.get(index).copied().unwrap_or(ip::STOCK_IP[0])),
+            auto_reconnect: 0,
         }
     }
 }
@@ -162,7 +167,39 @@ impl Tcp {
     ///
     /// 注意是读取而不是接收的字节数。
     /// 由于每次接收先读取 16 字节，所以返回的元组中，第二个数字应为 16。
+    ///
+    /// 配置了 [`TcpConfig::auto_reconnect`] 时，请求失败会自动重连并按原请求
+    /// 字节重发（行情查询请求幂等，可安全重试）。
     pub fn send_recv(&mut self, send: &[u8]) -> Result<(usize, usize)> {
+        let attempts = self.config.auto_reconnect.max(1);
+        let mut last_err: Option<std::io::Error> = None;
+        for attempt in 0..attempts {
+            match self.send_recv_once(send) {
+                Ok(v) => return Ok(v),
+                Err(e) => {
+                    last_err = Some(e);
+                    if attempt + 1 < attempts {
+                        log::warn!(
+                            "行情请求失败（第 {} 次），自动重连后重发: {:?}",
+                            attempt + 1,
+                            last_err.as_ref().unwrap().kind()
+                        );
+                        match self.reconnect() {
+                            Ok(()) => continue,
+                            Err(re) => {
+                                log::error!("自动重连失败: {re}");
+                                return Err(re);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Err(last_err.unwrap_or_else(|| std::io::Error::other("行情请求失败")))
+    }
+
+    /// 单次发送并接收（不重试）。
+    fn send_recv_once(&mut self, send: &[u8]) -> Result<(usize, usize)> {
         self.stream.write_all(send)?;
         // 一次性读满 16 字节响应头：单次 read 在 TCP 分段时可能只返回部分字节，
         // 导致后续从错误偏移解析响应长度。

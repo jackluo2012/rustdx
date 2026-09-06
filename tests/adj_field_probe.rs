@@ -19,12 +19,6 @@ fn probe_kline_adj_field() -> std::io::Result<()> {
 
     let mut tcp = Tcp::new()?;
 
-    let fetch = |tcp: &mut Tcp, field: u16| -> std::io::Result<Vec<u8>> {
-        let mut k = Kline::new(1, "600000", 9, 0, 3);
-        k.send[22..24].copy_from_slice(&field.to_le_bytes());
-        Ok(tcp::send_recv(tcp, &k.send, "probe-adj")?.0)
-    };
-
     // 三种字段值下解析出的日 K 数据
     let mut rows = Vec::new();
     for field in [0x0000u16, 0x0001, 0x0002, 0x0100] {

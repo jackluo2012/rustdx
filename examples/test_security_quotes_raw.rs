@@ -14,6 +14,7 @@ fn main() {
     match Tcp::with_config(&TcpConfig {
         timeout: std::time::Duration::from_secs(5),
         ip: Some(addr),
+        auto_reconnect: 0,
     }) {
         Ok(mut tcp) => {
             println!("✅ 连接成功\n");

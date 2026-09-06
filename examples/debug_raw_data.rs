@@ -75,6 +75,7 @@ fn main() {
         match Tcp::with_config(&rustdx_complete::tcp::TcpConfig {
             timeout: std::time::Duration::from_secs(5),
             ip: Some(*ip),
+            auto_reconnect: 0,
         }) {
             Ok(mut tcp2) => {
                 println!("      ✅ 连接成功");

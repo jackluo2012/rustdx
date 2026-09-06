@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+## v1.6.0 (2026-09-06)
+
+### 🛡️ 错误可诊断性 + 自动重连（rustdx-complete）
+
+**断线自动重连（`TcpConfig::auto_reconnect`）**
+- 新增 `auto_reconnect: usize` 配置（默认 `0` = 关闭，行为与旧版完全一致）；
+  设为 `1~2` 时，请求发送/接收失败自动 `reconnect()` 后重发原请求
+  （行情请求幂等，可安全重试），实测人为断线后下一次请求自动恢复；
+- 适用于长时运行的策略/扫描程序，避免偶发断线导致整条链路失败。
+
+**错误信息可直接定位（所有 `Client` 方法）**
+- `quotes`/`bars`/`index_bars`/`k`/`k_batch`/`k_adjusted`/`minute`/
+  `history_minute`/`transaction`/`history_transaction`/`finance`/`xdxr`/
+  `block`/`stock_count`/`stocks`/`f10`/`f10_categories` 全部附加
+  「接口名(market/code/字段)」上下文，**保留原始错误类型**；
+- 例：`k(1, 600519): 服务器无响应` —— 一眼定位是哪个请求、哪只股票。
+
+**测试**
+- 新增 `tests/auto_reconnect.rs`：真实断线 → 自动重连恢复 ✓ / 默认配置断线按预期失败 ✓
+- `struct_size` 快照随 `Tcp` 结构更新（120 → 128）；lib 122 + 全部集成测试通过
+
 ## v1.5.0 (2026-09-06)
 
 ### 🚀 批量 K 线 + 前/后复权（rustdx-complete 新 API）
