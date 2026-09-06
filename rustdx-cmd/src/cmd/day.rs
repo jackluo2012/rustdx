@@ -4,10 +4,15 @@ use rustdx_cli::fetch_code;
 use rustdx_cli::fetch_code::StockList;
 
 /// 例子：`rustdx day /vdb/tmp/tdx/sh/ /vdb/tmp/tdx/sz/ -l official -g ../assets/gbbq`。
-#[derive(FromArgs, PartialEq, Debug)]
+///
+/// **无参数模式**：直接运行 `rustdx day`（不带任何目录）时，自动从通达信官网
+/// 下载日线完整包 <https://data.tdx.com.cn/vipdoc/hsjday.zip>，解压后解析；
+/// 下载失败会交互询问备选下载地址（URL）或本地 zip 文件路径。
+#[derive(FromArgs, PartialEq, Debug, Clone)]
 #[argh(subcommand, name = "day")]
 pub struct DayCmd {
-    /// 必选。指定一个或多个含 *.day 文件的文件夹路径。使用空格分隔每个路径。
+    /// 可选。指定一个或多个含 *.day 文件的文件夹路径；也可传下载地址（URL）
+    /// 或本地 zip 文件路径（自动下载/解压后解析）。不指定时自动下载官网完整包。
     #[argh(positional)]
     pub path: Vec<std::path::PathBuf>,
 
@@ -67,12 +72,56 @@ pub struct DayCmd {
 
 impl DayCmd {
     pub fn run(&self) -> Result<()> {
+        // 无参数模式：自动下载官网日线完整包 → 解压 → 用 lday 目录继续解析。
+        // 若传入的是 URL 或本地 zip 路径，也走同一套下载/解压流程。
+        if let Some(dirs) = self.resolve_source_dirs()? {
+            let cmd = DayCmd {
+                path: dirs,
+                ..self.clone()
+            };
+            return cmd.run();
+        }
+
         match self.output.as_str() {
             "clickhouse" => self.run_clickhouse(),
             x if x.ends_with("csv") => self.run_csv(),
             "mongodb" => crate::io::run_mongodb(self),
             _ => todo!(),
         }
+    }
+
+    /// 解析来源：
+    /// - path 为空 → 自动下载官网完整包；
+    /// - 单个 path 是 URL（http/https）→ 下载该地址；
+    /// - 单个 path 是 `.zip` 文件 → 解压本地 zip；
+    /// - 否则（目录列表）→ 返回 None，走原有解析逻辑。
+    ///
+    /// 返回 `Some(dirs)` 表示需要换成这些 lday 目录继续；`None` 表示直接用原 path。
+    fn resolve_source_dirs(&self) -> Result<Option<Vec<std::path::PathBuf>>> {
+        use crate::download;
+        if self.path.is_empty() {
+            log::info!(
+                "未指定目录，自动从 {} 下载通达信日线完整包 ...",
+                download::DEFAULT_HSJDAY_URL
+            );
+            return Ok(Some(download::prepare_hsjday_dirs()?));
+        }
+
+        if self.path.len() == 1 {
+            let p = &self.path[0];
+            let s = p.to_string_lossy();
+            if s.starts_with("http://") || s.starts_with("https://") {
+                log::info!("按指定地址下载日线完整包: {s}");
+                let dirs = download::prepare_hsjday_dirs_from(&s)?;
+                return Ok(Some(dirs));
+            }
+            if s.ends_with(".zip") && p.is_file() {
+                log::info!("解压本地 zip: {}", p.display());
+                let dirs = download::prepare_hsjday_dirs_from_zip(p)?;
+                return Ok(Some(dirs));
+            }
+        }
+        Ok(None)
     }
 
     pub fn run_csv(&self) -> Result<()> {

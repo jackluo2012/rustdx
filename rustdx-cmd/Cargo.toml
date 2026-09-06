@@ -35,6 +35,11 @@ version = "3"
 default-features = false
 features = ["rustls"]
 
+[dependencies.zip]
+version = "2"
+default-features = false
+features = ["deflate"]
+
 [[bin]]
 name = "rustdx"
 path = "src/main.rs"
