@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### 🚀 rustdx-cli：day 命令自动下载（feat/auto-download-hsjday 分支）
+
+- `rustdx day`（不带任何目录参数）：自动从通达信官网
+  <https://data.tdx.com.cn/vipdoc/hsjday.zip> 下载日线完整包 → 解压 → 解析
+- `rustdx day <url>`：从指定地址下载；`rustdx day <xx.zip>`：解压本地 zip
+- 下载失败时交互询问备选下载地址（URL）或本地 zip 文件路径
+- 解压支持通达信 zip 的 Windows 反斜杠条目名（归一化为 `/`），带 zip-slip
+  路径穿越安全检查；下载/解压均在系统临时目录进行
+- 保持原有目录解析模式完全不变（实测 `rustdx day <dir>` 行为一致）
+
 ### 🔄 当日分时自动回退（待实盘确认）
 - `Client::minute` 当日分时接口解析为空（2026 新协议不匹配）时，自动改用
   **今日历史分时接口**（`HistoryMinuteTime` 查询当天）取数；历史分时接口协议稳定

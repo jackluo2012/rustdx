@@ -142,12 +142,25 @@ tcp.reconnect()?;
 ```console
 $ cargo install rustdx-cli
 
+# 无参数：自动下载通达信官网日线完整包（hsjday.zip）→ 解压 → 解析
+$ rustdx day
+
+# 指定下载地址（URL）或本地 zip 文件路径
+$ rustdx day https://mirror.example.com/hsjday.zip
+$ rustdx day /path/to/hsjday.zip
+
 # 解析通达信 day 文件（含复权），写入 ClickHouse
 $ rustdx day /path/tdx/sh/ /path/tdx/sz/ -l official -g gbbq -o clickhouse -t rustdx.factor
 
 # 每个交易日收盘后，用东财数据增量更新（需直连网络）
 $ rustdx east -p clickhouse -o clickhouse -t rustdx.factor
 ```
+
+**自动下载模式**（v1.2.x 分支新增）：`rustdx day` 不带任何目录参数时，
+自动从 <https://data.tdx.com.cn/vipdoc/hsjday.zip> 下载日线完整包并解压解析；
+下载失败会交互询问备选下载地址（URL）或本地 zip 文件路径。也可以直接
+`rustdx day <url>` 指定下载地址，或 `rustdx day <xx.zip>` 指定本地 zip。
+下载与解压均在系统临时目录进行，不污染当前目录。
 
 **day 命令输出说明**（v1.2.0 起）：
 - **code 列含市场前缀**：`sh600000` / `sz000001` / `sz200b07`，合并多市场（sh/sz/bj）

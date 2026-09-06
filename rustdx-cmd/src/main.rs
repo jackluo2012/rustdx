@@ -1,4 +1,5 @@
 mod cmd;
+mod download;
 mod io;
 
 #[macro_use]
