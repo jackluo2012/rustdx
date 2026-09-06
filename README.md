@@ -3,7 +3,7 @@
 [<img alt="github" src="https://img.shields.io/github/license/jackluo2012/rustdx?color=blue" height="20">](https://github.com/jackluo2012/rustdx)
 [<img alt="github" src="https://img.shields.io/github/issues/jackluo2012/rustdx?color=db2043" height="20">](https://github.com/jackluo2012/rustdx/issues)
 [<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-complete?style=flat&color=fc8d62&logo=rust&label=rustdx-complete" height="20">](https://crates.io/crates/rustdx-complete)
-[<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-complete/1.2.0?style=flat&color=green&logo=rust&logoColor=white&label=v1.2.0" height="20">](https://crates.io/crates/rustdx-complete)
+[<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-complete/1.3.0?style=flat&color=green&logo=rust&logoColor=white&label=v1.3.0" height="20">](https://crates.io/crates/rustdx-complete)
 [<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-rustdx-66c2a5?style=flat&labelColor=555555&logoColor=white&logo=data:image/svg+xml;base64,PHN2ZyByb2xlPSJpbWciIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDUxMiA1MTIiPjxwYXRoIGZpbGw9IiNmNWY1ZjUiIGQ9Ik00ODguNiAyNTAuMkwzOTIgMjE0VjEwNS41YzAtMTUtOS4zLTI4LjQtMjMuNC0zMy43bC0xMDAtMzcuNWMtOC4xLTMuMS0xNy4xLTMuMS0yNS4zIDBsLTEwMCAzNy41Yy0xNC4xIDUuMy0yMy40IDE4LjctMjMuNCAzMy43VjIxNGwtOTYuNiAzNi4yQzkuMyAyNTUuNSAwIDI2OC45IDAgMjgzLjlWMzk0YzAgMTMuNiA3LjcgMjYuMSAxOS45IDMyLjJsMTAwIDUwYzEwLjEgNS4xIDIyLjEgNS4xIDMyLjIgMGwxMDMuOS01MiAxMDMuOSA1MmMxMC4xIDUuMSAyMi4xIDUuMSAzMi4yIDBsMTAwLTUwYzEyLjItNi4xIDE5LjktMTguNiAxOS45LTMyLjJWMjgzLjljMC0xNS05LjMtMjguNC0yMy40LTMzLjd6TTM1OCAyMTQuOGwtODUgMzEuOXYtNjguMmw4NS0zN3Y3My4zek0xNTQgMTA0LjFsMTAyLTM4LjIgMTAyIDM4LjJ2LjZsLTEwMiA0MS40LTEwMi00MS40di0uNnptODQgMjkxLjFsLTg1IDQyLjV2LTc5LjFsODUtMzguOHY3NS40em0wLTExMmwtMTAyIDQxLjQtMTAyLTQxLjR2LS42bDEwMi0zOC4yIDEwMiAzOC4ydi42em0yNDAgMTEybC04NSA0Mi41di03OS4xbDg1LTM4Ljh2NzUuNHptMC0xMTJsLTEwMiA0MS40LTEwMi00MS40di0uNmwxMDItMzguMiAxMDIgMzguMnYuNnoiPjwvcGF0aD48L3N2Zz4K" height="20">](https://docs.rs/rustdx-complete)
 [<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-cli?style=flat&color=fc8d62&logo=rust&label=rustdx-cli" height="20">](https://crates.io/crates/rustdx-cli)
 
@@ -26,7 +26,7 @@
 
 ```toml
 [dependencies]
-rustdx-complete = "1.2.0"
+rustdx-complete = "1.3.0"
 ```
 
 或 `cargo add rustdx-complete`。
@@ -139,28 +139,47 @@ tcp.reconnect()?;
 
 ## 🖥 rustdx-cli 命令行
 
+### 安装
+
 ```console
 $ cargo install rustdx-cli
+```
 
-# 无参数：自动下载通达信官网日线完整包（hsjday.zip）→ 解压 → 解析
+### 1️⃣ `day` — 解析通达信日线数据
+
+```console
+# ① 一键模式（推荐）：自动下载官网日线完整包 → 解压 → 解析
+#    数据源：https://data.tdx.com.cn/vipdoc/hsjday.zip（沪深京全市场，A股/B股/指数/基金/可转债）
 $ rustdx day
 
-# 指定下载地址（URL）或本地 zip 文件路径
+# ② 指定下载地址（镜像 / 自定义源）
 $ rustdx day https://mirror.example.com/hsjday.zip
+
+# ③ 使用本地已下载的 zip 包
 $ rustdx day /path/to/hsjday.zip
 
-# 解析通达信 day 文件（含复权），写入 ClickHouse
+# ④ 直接解析本机通达信 day 目录（原有模式，与上面互不影响）
 $ rustdx day /path/tdx/sh/ /path/tdx/sz/ -l official -g gbbq -o clickhouse -t rustdx.factor
 
+# ⑤ 常用可选参数
+$ rustdx day -n 100        # 每个目录只解析前 100 个文件（快速测试）
+$ rustdx day -l official   # 只解析沪深交易所官网股票列表内的代码
+$ rustdx day -e sz -c 0000 # 只解析 sz 市场 0000 开头的代码
+$ rustdx day -o out.csv    # 输出到指定 csv（默认 stocks.csv）
+```
+
+**自动下载模式说明**：
+- ①③ 的 zip 与解压数据放在**系统临时目录**（`$TMPDIR/rustdx_hsjday/`），不污染当前目录；
+- 下载失败时，程序会交互询问**备选下载地址（URL）或本地 zip 文件路径**，输入后自动继续；
+- 下载进度每 32 MiB 打印一次；完整包约 523 MiB，解压后约 12,394 个 `.day` 文件；
+- 输出 CSV 的 code 列含市场前缀（`sh600000`/`sz000001`/`sz200b07`），合并多市场不会混叠。
+
+### 2️⃣ `east` — 东财日线增量更新
+
+```console
 # 每个交易日收盘后，用东财数据增量更新（需直连网络）
 $ rustdx east -p clickhouse -o clickhouse -t rustdx.factor
 ```
-
-**自动下载模式**（v1.2.x 分支新增）：`rustdx day` 不带任何目录参数时，
-自动从 <https://data.tdx.com.cn/vipdoc/hsjday.zip> 下载日线完整包并解压解析；
-下载失败会交互询问备选下载地址（URL）或本地 zip 文件路径。也可以直接
-`rustdx day <url>` 指定下载地址，或 `rustdx day <xx.zip>` 指定本地 zip。
-下载与解压均在系统临时目录进行，不污染当前目录。
 
 **day 命令输出说明**（v1.2.0 起）：
 - **code 列含市场前缀**：`sh600000` / `sz000001` / `sz200b07`，合并多市场（sh/sz/bj）
