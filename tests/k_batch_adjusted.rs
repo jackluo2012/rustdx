@@ -26,8 +26,8 @@ fn tcp_k_batch_matches_k() -> std::io::Result<()> {
         assert_eq!(d.len(), single.len(), "{code} 根数不一致");
         for (a, b) in d.iter().zip(&single) {
             assert_eq!(
-                DateTime::to_u32(a.dt.clone()),
-                DateTime::to_u32(b.dt.clone()),
+                DateTime::to_u32(a.dt),
+                DateTime::to_u32(b.dt),
                 "{code} 日期不一致"
             );
             assert!((a.close - b.close).abs() < 1e-9, "{code} 收盘价不一致");
@@ -102,7 +102,7 @@ fn tcp_k_adjusted_qfq_hfq() -> std::io::Result<()> {
     let mut checked = 0;
     let mut removed = 0;
     for i in 1..raw.len() {
-        let d = DateTime::to_u32(raw[i].dt.clone());
+        let d = DateTime::to_u32(raw[i].dt);
         if !exdiv.contains(&d) {
             continue;
         }
@@ -140,7 +140,7 @@ fn tcp_k_adjusted_range() -> std::io::Result<()> {
     let q = c.k_adjusted(1, "600519", Adj::Qfq, Some(20240101), Some(20241231))?;
     assert!(!q.is_empty());
     for bar in &q {
-        let d = DateTime::to_u32(bar.dt.clone());
+        let d = DateTime::to_u32(bar.dt);
         assert!((20240101..=20241231).contains(&d));
     }
     println!("2024 年 qfq {} 根 ✓", q.len());

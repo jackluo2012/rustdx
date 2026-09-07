@@ -74,7 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 match Tcp::with_config(&rustdx_complete::tcp::TcpConfig {
                     timeout: std::time::Duration::from_secs(5),
                     ip: Some(addr),
-                    auto_reconnect: 0,
+                    ..Default::default()
                 }) {
                     Ok(mut tcp) => {
                         println!("✅ 连接成功！\n");
@@ -129,7 +129,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if rustdx_complete::tcp::Tcp::with_config(&rustdx_complete::tcp::TcpConfig {
             timeout: std::time::Duration::from_secs(5),
             ip: Some(*addr),
-            auto_reconnect: 0,
+            ..Default::default()
         })
         .is_ok()
         {

@@ -34,6 +34,20 @@ pub struct TcpConfig {
     /// 请求失败时自动重连重试的次数（每次失败先重连、再重发请求）。
     /// 默认 `0` = 不自动重试（与旧版行为一致）；日常使用建议 `1~2`。
     pub auto_reconnect: usize,
+    /// 重试前的退避间隔基数（毫秒）。第 `n` 次失败后等待
+    /// `retry_delay_ms × n` 再重连重试（线性退避）。
+    ///
+    /// 代理/高并发环境下「立即重试」常连续失败（实测 TUN fake-IP 环境
+    /// 首连易 `EAGAIN`），建议 200~400。默认 `0` = 立即重试（旧行为）。
+    pub retry_delay_ms: u64,
+    /// K 线区间拉取（[`crate::tcp::stock::Client::k`] /
+    /// [`crate::tcp::stock::Client::bars_range`]）空结果二次确认。
+    ///
+    /// TDX 服务端高频请求下会**静默返回空响应**（不报错），与停牌股
+    /// 「窗口内本就无 K 线」的真空无法从返回值区分。开启后：空结果时
+    /// 等待 300ms 并重连，重拉一次，仍空才返回空——以停牌股约 300ms/只
+    /// 的代价换取全市场扫描不被静默限流污染。默认 `false`（旧行为）。
+    pub recheck_empty: bool,
 }
 
 impl Default for TcpConfig {
@@ -42,6 +56,8 @@ impl Default for TcpConfig {
             timeout: TIMEOUT,
             ip: None,
             auto_reconnect: 0,
+            retry_delay_ms: 0,
+            recheck_empty: false,
         }
     }
 }
@@ -52,7 +68,7 @@ impl TcpConfig {
         Self {
             timeout,
             ip: Some(ip::STOCK_IP.get(index).copied().unwrap_or(ip::STOCK_IP[0])),
-            auto_reconnect: 0,
+            ..Default::default()
         }
     }
 }
@@ -114,6 +130,11 @@ impl Tcp {
         Ok(tcp)
     }
 
+    /// 当前连接配置（[`TcpConfig::recheck_empty`] 等高级选项由此读取）。
+    pub fn config(&self) -> &TcpConfig {
+        &self.config
+    }
+
     /// 重新建立连接（按创建时的配置），并重发握手包。原连接被丢弃。
     ///
     /// ## 示例
@@ -152,6 +173,7 @@ impl Tcp {
                 Ok(v) => return Ok(v),
                 Err(e) => {
                     if attempt + 1 < attempts {
+                        self.backoff(attempt as u64 + 1);
                         self.reconnect()?;
                     }
                     last_err = Some(e);
@@ -159,6 +181,13 @@ impl Tcp {
             }
         }
         Err(last_err.unwrap())
+    }
+
+    /// 重试退避：第 `n` 次失败后按 `retry_delay_ms × n` 等待（配置为 0 时不等待）。
+    fn backoff(&self, failed: u64) {
+        if self.config.retry_delay_ms > 0 {
+            std::thread::sleep(Duration::from_millis(self.config.retry_delay_ms * failed));
+        }
     }
 
     /// 发送并接收字节。需要对接收的字节进行解析（参考 [`Tdx::parse`] 的实现）。
@@ -184,6 +213,7 @@ impl Tcp {
                             attempt + 1,
                             last_err.as_ref().unwrap().kind()
                         );
+                        self.backoff(attempt as u64 + 1);
                         match self.reconnect() {
                             Ok(()) => continue,
                             Err(re) => {

@@ -90,6 +90,7 @@ impl<'a> Tdx for IndexKline<'a> {
         }
         let (count, mut pos, mut base) = (u16_from_le_bytes(&v, 0), 2usize, 0i32);
         let n = (count as usize).min(self.data.len());
+        let mut parsed = 0usize;
         for item in self.data.iter_mut().take(n) {
             if v.len() - pos < 4 + 4 + 8 + 4 {
                 break;
@@ -123,7 +124,11 @@ impl<'a> Tdx for IndexKline<'a> {
             pos += 4;
 
             base += close;
+            parsed += 1;
         }
+        // 与 Kline 同款：服务器少返回（历史尽头）时截断默认填充项，并落实升序契约
+        self.data.truncate(parsed);
+        self.data.sort_by_key(|b| b.dt);
         self.response = v;
     }
 

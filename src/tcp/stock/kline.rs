@@ -206,6 +206,9 @@ impl<'a> Tdx for Kline<'a> {
             parsed += 1;
         }
         self.data.truncate(parsed);
+        // 升序契约：实测服务端返回顺序与早前相反（2026-09 起，疑与当日分时
+        // 协议变更同期调整），解析层统一排序，消费方不再各自兜底。
+        self.data.sort_by_key(|b| b.dt);
         self.response = v;
     }
 

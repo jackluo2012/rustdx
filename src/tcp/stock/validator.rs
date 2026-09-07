@@ -186,7 +186,7 @@ pub fn validate_kline_continuity(data: &[KlineData], _code: &str) -> ValidationR
                 ));
             }
         }
-        prev_dt = Some(bar.dt.clone());
+        prev_dt = Some(bar.dt);
     }
 
     if issues.is_empty() {

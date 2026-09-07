@@ -3,7 +3,7 @@
 [<img alt="github" src="https://img.shields.io/github/license/jackluo2012/rustdx?color=blue" height="20">](https://github.com/jackluo2012/rustdx)
 [<img alt="github" src="https://img.shields.io/github/issues/jackluo2012/rustdx?color=db2043" height="20">](https://github.com/jackluo2012/rustdx/issues)
 [<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-complete?style=flat&color=fc8d62&logo=rust&label=rustdx-complete" height="20">](https://crates.io/crates/rustdx-complete)
-[<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-complete/1.7.0?style=flat&color=green&logo=rust&logoColor=white&label=v1.7.0" height="20">](https://crates.io/crates/rustdx-complete)
+[<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-complete/1.8.0?style=flat&color=green&logo=rust&logoColor=white&label=v1.8.0" height="20">](https://crates.io/crates/rustdx-complete)
 [<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-rustdx-66c2a5?style=flat&labelColor=555555&logoColor=white&logo=data:image/svg+xml;base64,PHN2ZyByb2xlPSJpbWciIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDUxMiA1MTIiPjxwYXRoIGZpbGw9IiNmNWY1ZjUiIGQ9Ik00ODguNiAyNTAuMkwzOTIgMjE0VjEwNS41YzAtMTUtOS4zLTI4LjQtMjMuNC0zMy43bC0xMDAtMzcuNWMtOC4xLTMuMS0xNy4xLTMuMS0yNS4zIDBsLTEwMCAzNy41Yy0xNC4xIDUuMy0yMy40IDE4LjctMjMuNCAzMy43VjIxNGwtOTYuNiAzNi4yQzkuMyAyNTUuNSAwIDI2OC45IDAgMjgzLjlWMzk0YzAgMTMuNiA3LjcgMjYuMSAxOS45IDMyLjJsMTAwIDUwYzEwLjEgNS4xIDIyLjEgNS4xIDMyLjIgMGwxMDMuOS01MiAxMDMuOSA1MmMxMC4xIDUuMSAyMi4xIDUuMSAzMi4yIDBsMTAwLTUwYzEyLjItNi4xIDE5LjktMTguNiAxOS45LTMyLjJWMjgzLjljMC0xNS05LjMtMjguNC0yMy40LTMzLjd6TTM1OCAyMTQuOGwtODUgMzEuOXYtNjguMmw4NS0zN3Y3My4zek0xNTQgMTA0LjFsMTAyLTM4LjIgMTAyIDM4LjJ2LjZsLTEwMiA0MS40LTEwMi00MS40di0uNnptODQgMjkxLjFsLTg1IDQyLjV2LTc5LjFsODUtMzguOHY3NS40em0wLTExMmwtMTAyIDQxLjQtMTAyLTQxLjR2LS42bDEwMi0zOC4yIDEwMiAzOC4ydi42em0yNDAgMTEybC04NSA0Mi41di03OS4xbDg1LTM4Ljh2NzUuNHptMC0xMTJsLTEwMiA0MS40LTEwMi00MS40di0uNmwxMDItMzguMiAxMDIgMzguMnYuNnoiPjwvcGF0aD48L3N2Zz4K" height="20">](https://docs.rs/rustdx-complete)
 [<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-cli?style=flat&color=fc8d62&logo=rust&label=rustdx-cli" height="20">](https://crates.io/crates/rustdx-cli)
 
@@ -20,13 +20,13 @@
 - **本地 day 文件并发解析**：rustdx-cli 多线程并行解析（线程数=逻辑核心数），并支持带字母的特殊品种代码（如深市板块指数 `sz200b07`）
 - **技术指标**：SMA/EMA/MACD/RSI/布林带/KDJ
 - **辅助能力**：交易日历、智能缓存、连接池、Builder 模式 API、数据验证
-- **213 个测试**（含真实抓包字节的回归测试），clippy 零警告
+- **227 个测试**（含真实抓包字节的回归测试），clippy 零警告
 
 ## 📦 安装
 
 ```toml
 [dependencies]
-rustdx-complete = "1.7.0"
+rustdx-complete = "1.8.0"
 ```
 
 或 `cargo add rustdx-complete`。
@@ -81,6 +81,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `bars` | `Client::bars` / `Kline` | 股票K线（5m/15m/30m/1h/日/周/月…，category 0-11） |
 | `index` / `index_bars` | `Client::index_bars` / `IndexKline` | 指数K线，含上涨/下跌家数 |
 | `k` | `Client::k` | 按日期区间拉日K线，自动翻页 |
+| —（rustdx 新增） | `Client::bars_range` | 任意周期（5m/15m/…）K线区间回补：自动翻页+去重+乱码年份终止 |
 | —（rustdx 新增） | `Client::k_batch` | 批量日K，内部连接池并行，单只失败不影响其他 |
 | —（rustdx 新增） | `Client::k_adjusted` | 前/后复权日K，本地按除权除息计算 |
 | `minute` | `Client::minute` / `MinuteTime` | 当日分时（2026 新协议已支持，异常时自动回退历史分时） |
@@ -121,7 +122,7 @@ use rustdx_complete::tcp::{ip, Tcp, TcpConfig};
 use std::time::Duration;
 
 // 指定服务器与超时
-let cfg = TcpConfig { timeout: Duration::from_secs(5), ip: Some(ip::STOCK_IP[0]) };
+let cfg = TcpConfig { timeout: Duration::from_secs(5), ip: Some(ip::STOCK_IP[0]), ..Default::default() };
 let mut tcp = Tcp::with_config(&cfg)?;
 
 // 心跳 / 重连 / 自动重试
@@ -146,6 +147,7 @@ let mut tcp = Tcp::with_config(&cfg)?;
 
 - `indicators`：SMA/EMA/MACD/RSI/布林带/KDJ，与K线数据无缝衔接
 - `calendar`：A股交易日历（法定节假日，数据源 trade_date_a）
+- `limit`：涨跌停域规则——板块判定（主板/创业板/科创/北交）、涨跌停价（四舍五入到分，ST 5%/20%/30% 规则齐）、封板/炸板判型、连板高度
 - `cache`：内存/文件缓存（TTL 过期）
 - `pool`：TCP 连接池
 - `builder`：KlineBuilder 链式 API

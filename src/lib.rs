@@ -14,6 +14,9 @@ pub mod error;
 
 pub mod calendar;
 
+/// A 股涨跌停规则：板块判定、涨跌停价、封板/炸板判型、连板高度。
+pub mod limit;
+
 pub mod builder;
 
 pub mod pool;

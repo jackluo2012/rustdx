@@ -74,7 +74,7 @@ pub static STOCK_IP: [SocketAddr; 40] = [
 ///
 /// let alive = ip::check_alive(Duration::from_secs(3));
 /// if let Some(fastest) = alive.first() {
-///     let config = TcpConfig { timeout: Duration::from_secs(5), ip: Some(*fastest), auto_reconnect: 0 };
+///     let config = TcpConfig { timeout: Duration::from_secs(5), ip: Some(*fastest), ..Default::default() };
 ///     let mut tcp = Tcp::with_config(&config).unwrap();
 /// }
 /// ```
@@ -112,7 +112,7 @@ pub fn check_alive_protocol(timeout: Duration) -> Vec<SocketAddr> {
                     let ok = Tcp::with_config(&TcpConfig {
                         timeout,
                         ip: Some(*addr),
-                        auto_reconnect: 0,
+                        ..Default::default()
                     })
                     .and_then(|mut tcp| tcp.heartbeat())
                     .is_ok();
