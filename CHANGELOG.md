@@ -1,5 +1,17 @@
 # Changelog
 
+## rustdx-cli v1.7.0 (2026-09-08)
+
+### 🔌 day 命令 ClickHouse 导出改走 HTTP（认证/远程可用）
+
+- `day -o clickhouse` 原经系统 `clickhouse-client` 命令导入（仅限本机默认用户），
+  现改走 **HTTP 接口**（ureq 流式上传），认证与地址走环境变量：
+  `CLICKHOUSE_URL`（默认 `http://127.0.0.1:8123`）/ `CLICKHOUSE_USER`（默认
+  `default`）/ `CLICKHOUSE_PASSWORD`——与消费方（如 ShortMind OS）的 `.env`
+  约定一致；
+- CSV 数据流式上传（~1.8 GB 全历史不再整载内存），DDL（建库建表）同样走 HTTP；
+- 行为变化：不再依赖系统安装 `clickhouse-client`。
+
 ## v1.8.1 (2026-09-08)
 
 - 修复 `ex_right_reference` 未在 `tcp::stock` 模块导出（v1.8.0 定义于 `client`

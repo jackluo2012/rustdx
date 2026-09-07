@@ -1,5 +1,5 @@
 use crate::cmd::DayCmd;
-use eyre::{Result, anyhow};
+use eyre::{Result, anyhow, eyre};
 use rustdx_cli::fetch_code::StockList;
 use rustdx_complete::file::{
     day::fq::Day,
@@ -187,12 +187,92 @@ fn database_table(table: &str) -> (&str, &str) {
     table.split_at(pos) // (database_name, table_name)
 }
 
+/// ClickHouse HTTP 连接配置（环境变量，约定与生态一致）。
+#[derive(Debug, Clone)]
+struct ClickHouseConfig {
+    url: String,
+    user: String,
+    password: String,
+}
+
+impl ClickHouseConfig {
+    fn from_env() -> Self {
+        Self {
+            url: std::env::var("CLICKHOUSE_URL").unwrap_or_else(|_| "http://127.0.0.1:8123".into()),
+            user: std::env::var("CLICKHOUSE_USER").unwrap_or_else(|_| "default".into()),
+            password: std::env::var("CLICKHOUSE_PASSWORD").unwrap_or_default(),
+        }
+    }
+
+    /// 执行 SQL（DDL/DML，body 即语句）。
+    fn exec(&self, sql: &str) -> Result<String> {
+        let mut req = ureq::post(&self.url).header("Content-Type", "text/plain; charset=utf-8");
+        // 认证 header（ClickHouse 原生 X-ClickHouse-User/Key）
+        if self.user != "default" || !self.password.is_empty() {
+            req = req.header("X-ClickHouse-User", &self.user);
+        }
+        if !self.password.is_empty() {
+            req = req.header("X-ClickHouse-Key", &self.password);
+        }
+        let mut resp = req.send(sql.as_bytes()).map_err(|e| eyre!("{e}"))?;
+        let status = resp.status().as_u16();
+        let body = resp.body_mut().read_to_string().unwrap_or_default();
+        if !(200..300).contains(&status) {
+            eyre::bail!("ClickHouse HTTP {status}: {body}");
+        }
+        Ok(body)
+    }
+
+    /// 数据流导入（CSV 文件 → `INSERT INTO <table> FORMAT CSVWithNames`）。
+    fn insert_csv(&self, table: &str, csv: &std::path::Path) -> Result<()> {
+        let file = std::fs::File::open(csv)?;
+        let len = file.metadata()?.len();
+        let sql = urlencode(&format!("INSERT INTO {table} FORMAT CSVWithNames"));
+        let mut req = ureq::post(&format!("{}/?query={sql}", self.url));
+        if self.user != "default" || !self.password.is_empty() {
+            req = req.header("X-ClickHouse-User", &self.user);
+        }
+        if !self.password.is_empty() {
+            req = req.header("X-ClickHouse-Key", &self.password);
+        }
+        let mut file = file;
+        let resp = req
+            .send(ureq::SendBody::from_reader(&mut file))
+            .map_err(|e| eyre!("{e}"))?;
+        let status = resp.status().as_u16();
+        if !(200..300).contains(&status) {
+            let mut resp = resp;
+            let msg = resp.body_mut().read_to_string().unwrap_or_default();
+            eyre::bail!("ClickHouse HTTP {status}: {msg}");
+        }
+        debug!("clickhouse 导入完成：{table}（{len} 字节 CSV）");
+        Ok(())
+    }
+}
+
+/// URL 查询参数转义（导入 SQL 仅含表名/FORMAT 关键字，字符集有限）。
+fn urlencode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            other => out.push_str(&format!("%{other:02X}")),
+        }
+    }
+    out
+}
+
+/// ClickHouse HTTP 执行 SQL（建库建表等 DDL）。
+fn ch_execute(cfg: &ClickHouseConfig, sql: &str) -> Result<()> {
+    cfg.exec(sql).map(|_| ())
+}
+
 pub fn setup_clickhouse(fq: bool, table: &str) -> Result<()> {
+    let cfg = ClickHouseConfig::from_env();
     let create_database = format!("CREATE DATABASE IF NOT EXISTS {}", database_table(table).0);
-    let output = Command::new("clickhouse-client")
-        .args(["--query", &create_database])
-        .output()?;
-    check_output(output);
+    ch_execute(&cfg, &create_database)?;
     #[rustfmt::skip]
     let create_table = if fq {
         format!("
@@ -229,32 +309,13 @@ pub fn setup_clickhouse(fq: bool, table: &str) -> Result<()> {
             ORDER BY (date, code)
         ")
     }; // PARTITION BY 部分可能需要去掉
-    let output = Command::new("clickhouse-client")
-        .args(["--query", &create_table])
-        .output()?;
-    check_output(output);
-    Ok(())
+    ch_execute(&cfg, &create_table)
 }
 
 pub fn insert_clickhouse(output: &impl AsRef<Path>, table: &str, keep: bool) -> Result<()> {
-    use std::process::{Command, Stdio};
-    let query = format!("INSERT INTO {table} FORMAT CSVWithNames");
-    let result = Command::new("clickhouse-client")
-        .args(["--query", &query])
-        .stdin(Stdio::from(File::open(output)?))
-        .output()?;
-    if result.status.success() {
-        info!("成功插入数据到 clickhouse 数据库");
-        debug!(
-            "clickhouse 返回结果：{}",
-            String::from_utf8_lossy(&result.stdout)
-        );
-    } else {
-        error!(
-            "插入数据到 clickhouse 数据库时遇到：{}",
-            String::from_utf8_lossy(&result.stderr)
-        );
-    };
+    let cfg = ClickHouseConfig::from_env();
+    cfg.insert_csv(table, output.as_ref())?;
+    info!("成功插入数据到 clickhouse 数据库（{table}）");
     keep_csv(output, keep)?;
     Ok(())
 }
