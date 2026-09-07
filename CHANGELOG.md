@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.8.1 (2026-09-08)
+
+- 修复 `ex_right_reference` 未在 `tcp::stock` 模块导出（v1.8.0 定义于 `client`
+  模块但遗漏 re-export，外部无法引用）。
+
 ## v1.8.0 (2026-09-07)
 
 ### 🚀 全市场回补三件套 + 涨跌停域规则（rustdx-complete）

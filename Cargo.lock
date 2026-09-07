@@ -765,7 +765,7 @@ dependencies = [
 
 [[package]]
 name = "rustdx-complete"
-version = "1.8.0"
+version = "1.8.1"
 dependencies = [
  "chrono",
  "csv",
