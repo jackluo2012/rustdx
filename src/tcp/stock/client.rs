@@ -282,13 +282,12 @@ impl Client {
 
     /// 当日分时（mootdx `minute`）。
     ///
-    /// ⚠️ 部分服务器 2026 起分时响应格式已变（数据前新增 market+code 头、编码改变），
-    /// 旧协议解析异常会返回空数据。本方法内置**自动回退**：当日分时接口解析为空
-    /// （协议不匹配）时，改用「今日历史分时接口」（[`HistoryMinuteTime`] 查询当天）
-    /// 取数——历史分时接口协议稳定、实测 240 点完整，这是 pytdx/mootdx 生态的
-    /// 同类解决方案（参见 pytdx#148、xmtdx）。
+    /// 2026 新协议已直接支持（响应含 market+code 头与盘口快照，数据块定位
+    /// 见 [`super::MinuteTime`] 文档）。若某台服务器解析仍为空（异常响应），
+    /// 本方法**自动回退**：「今日历史分时接口」（[`HistoryMinuteTime`] 查询
+    /// 当天）协议稳定，作为兜底数据源。
     ///
-    /// 当日分时与今日历史分时返回相同的数据结构（每分钟一个价格/成交量点）。
+    /// 两个接口返回相同的数据结构（每分钟一个价格/成交量点）。
     pub fn minute(&mut self, market: u16, code: &str) -> std::io::Result<Vec<MinuteTimeData>> {
         let ctx = format_args!("Client::minute(market={market}, code={code})");
         let mut mt = super::MinuteTime::new(market, code);

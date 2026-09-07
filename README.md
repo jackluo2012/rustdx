@@ -3,7 +3,7 @@
 [<img alt="github" src="https://img.shields.io/github/license/jackluo2012/rustdx?color=blue" height="20">](https://github.com/jackluo2012/rustdx)
 [<img alt="github" src="https://img.shields.io/github/issues/jackluo2012/rustdx?color=db2043" height="20">](https://github.com/jackluo2012/rustdx/issues)
 [<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-complete?style=flat&color=fc8d62&logo=rust&label=rustdx-complete" height="20">](https://crates.io/crates/rustdx-complete)
-[<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-complete/1.3.0?style=flat&color=green&logo=rust&logoColor=white&label=v1.3.0" height="20">](https://crates.io/crates/rustdx-complete)
+[<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-complete/1.7.0?style=flat&color=green&logo=rust&logoColor=white&label=v1.7.0" height="20">](https://crates.io/crates/rustdx-complete)
 [<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-rustdx-66c2a5?style=flat&labelColor=555555&logoColor=white&logo=data:image/svg+xml;base64,PHN2ZyByb2xlPSJpbWciIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDUxMiA1MTIiPjxwYXRoIGZpbGw9IiNmNWY1ZjUiIGQ9Ik00ODguNiAyNTAuMkwzOTIgMjE0VjEwNS41YzAtMTUtOS4zLTI4LjQtMjMuNC0zMy43bC0xMDAtMzcuNWMtOC4xLTMuMS0xNy4xLTMuMS0yNS4zIDBsLTEwMCAzNy41Yy0xNC4xIDUuMy0yMy40IDE4LjctMjMuNCAzMy43VjIxNGwtOTYuNiAzNi4yQzkuMyAyNTUuNSAwIDI2OC45IDAgMjgzLjlWMzk0YzAgMTMuNiA3LjcgMjYuMSAxOS45IDMyLjJsMTAwIDUwYzEwLjEgNS4xIDIyLjEgNS4xIDMyLjIgMGwxMDMuOS01MiAxMDMuOSA1MmMxMC4xIDUuMSAyMi4xIDUuMSAzMi4yIDBsMTAwLTUwYzEyLjItNi4xIDE5LjktMTguNiAxOS45LTMyLjJWMjgzLjljMC0xNS05LjMtMjguNC0yMy40LTMzLjd6TTM1OCAyMTQuOGwtODUgMzEuOXYtNjguMmw4NS0zN3Y3My4zek0xNTQgMTA0LjFsMTAyLTM4LjIgMTAyIDM4LjJ2LjZsLTEwMiA0MS40LTEwMi00MS40di0uNnptODQgMjkxLjFsLTg1IDQyLjV2LTc5LjFsODUtMzguOHY3NS40em0wLTExMmwtMTAyIDQxLjQtMTAyLTQxLjR2LS42bDEwMi0zOC4yIDEwMiAzOC4ydi42em0yNDAgMTEybC04NSA0Mi41di03OS4xbDg1LTM4Ljh2NzUuNHptMC0xMTJsLTEwMiA0MS40LTEwMi00MS40di0uNmwxMDItMzguMiAxMDIgMzguMnYuNnoiPjwvcGF0aD48L3N2Zz4K" height="20">](https://docs.rs/rustdx-complete)
 [<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-cli?style=flat&color=fc8d62&logo=rust&label=rustdx-cli" height="20">](https://crates.io/crates/rustdx-cli)
 
@@ -20,13 +20,13 @@
 - **本地 day 文件并发解析**：rustdx-cli 多线程并行解析（线程数=逻辑核心数），并支持带字母的特殊品种代码（如深市板块指数 `sz200b07`）
 - **技术指标**：SMA/EMA/MACD/RSI/布林带/KDJ
 - **辅助能力**：交易日历、智能缓存、连接池、Builder 模式 API、数据验证
-- **197 个测试**（含真实抓包字节的回归测试），clippy 零警告
+- **213 个测试**（含真实抓包字节的回归测试），clippy 零警告
 
 ## 📦 安装
 
 ```toml
 [dependencies]
-rustdx-complete = "1.3.0"
+rustdx-complete = "1.7.0"
 ```
 
 或 `cargo add rustdx-complete`。
@@ -83,7 +83,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `k` | `Client::k` | 按日期区间拉日K线，自动翻页 |
 | —（rustdx 新增） | `Client::k_batch` | 批量日K，内部连接池并行，单只失败不影响其他 |
 | —（rustdx 新增） | `Client::k_adjusted` | 前/后复权日K，本地按除权除息计算 |
-| `minute` | `Client::minute` / `MinuteTime` | 当日分时 ⚠️ 见已知问题 |
+| `minute` | `Client::minute` / `MinuteTime` | 当日分时（2026 新协议已支持，异常时自动回退历史分时） |
 | `minutes` | `Client::history_minute` / `HistoryMinuteTime` | 历史分时 |
 | `transaction` | `Client::transaction` / `Transaction` | 当日逐笔成交 |
 | `transactions` | `Client::history_transaction` / `HistoryTransaction` | 历史逐笔成交 |
@@ -154,14 +154,15 @@ let mut tcp = Tcp::with_config(&cfg)?;
 
 ## ⚠️ 已知问题（诚实声明）
 
-1. **当日分时**（`Client::minute`）：2026 年起部分通达信服务器变更了分时响应格式，
-   pytdx/mootdx 同样无法解析。rustdx 内置**自动回退**——当日分时接口解析异常时
-   自动改用**今日历史分时接口**（`HistoryMinuteTime`，协议稳定、实测 240 点完整）
-   取数；非交易日返回空数据。逆向进展见 [pytdx #148](https://github.com/rainx/pytdx/issues/148)。
-2. **历史逐笔的买卖方向**：实测除 0=买、1=卖、2=中性外还会出现 5、8 等值
+1. **历史逐笔的买卖方向**：实测除 0=买、1=卖、2=中性外还会出现 5、8 等值
    （疑似集合竞价标记），服务器语义未公开，请谨慎使用该字段。
-3. **东财接口**（rustdx-cli 的 `east` 命令）：在代理/VPN（fake-IP DNS）环境下会被
+2. **东财接口**（rustdx-cli 的 `east` 命令）：在代理/VPN（fake-IP DNS）环境下会被
    断开，需要直连网络。
+
+> 历史问题：2026 年通达信变更了当日分时响应格式（pytdx/mootdx 亦无法解析，
+> 见 [pytdx #148](https://github.com/rainx/pytdx/issues/148)），rustdx 已于
+> v1.7.0 完成新协议逆向并直接支持（含可变长度盘口快照头 + 数据块定位），
+> 并保留「今日历史分时接口」自动回退作为兜底。
 
 ## 🖥 rustdx-cli 命令行
 

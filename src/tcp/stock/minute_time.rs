@@ -82,68 +82,51 @@ impl<'a> Tdx for MinuteTime<'a> {
 
     /// 解析响应的字节。
     ///
-    /// ## 响应格式（基于 pytdx GetMinuteTimeDataCmd.parseResponse）
-    /// - 前2字节：数据点数量
-    /// - 字节2-3：跳过
-    /// - 之后每个数据点：price_raw / reversed1 / vol 三个变长编码字段
+    /// ## 响应格式
     ///
-    /// ## ⚠️ 已知问题（2026 起）
-    /// 部分通达信服务器的分时响应格式已发生变化（数据前新增了 market + code 头，
-    /// 数据编码亦与旧格式不符），pytdx 同样无法解析。本方法内置了防御性校验：
-    /// 解析结果异常（点数不齐、价格不合理、字节未耗尽）时返回**空数据**而非垃圾数据。
-    /// 参见 <https://github.com/rainx/pytdx/issues/148>。
+    /// ### 2026 新协议（实测 2026-09 沪深主板均此格式）
+    /// - 头 11 字节：数量(2) + 跳过(2) + market(1) + code(6, ASCII，即请求的代码)
+    /// - 之后是**可变个数**的头部 varint（盘口/统计快照：最新价、昨收/开/高/低差值、
+    ///   总量等，实测 29~32 个，随内容浮动，无法正向跳过）
+    /// - 最后是 `num × 3` 个数据 varint（每分钟一点：价格增量 / 保留 / 成交量），
+    ///   **数据块恰好耗尽到响应末尾** → 正向穷举头部结束位置唯一定位
+    ///   （见 [`locate_data_block`]），已用历史分时（旧协议）交叉验证逐点吻合
+    ///
+    /// ### 旧协议（pytdx GetMinuteTimeDataCmd.parseResponse）
+    /// - 前 2 字节：数据点数量；字节 2-3 跳过；之后每点 3 个 varint
+    ///
+    /// 格式判别：头部 code 锚点（`v[5..11] == 请求 code`）命中即新协议，
+    /// 否则按旧协议解析。两种格式均带防御性校验（点数完整、价格合理、
+    /// 字节耗尽），异常时返回**空数据**而非垃圾数据。
     fn parse(&mut self, v: Vec<u8>) {
         self.data = Vec::new();
 
-        if v.len() < 4 {
-            self.response = v;
-            return;
-        }
+        if v.len() >= 4 {
+            let num_points = u16_from_le_bytes(&v, 0) as usize;
 
-        // 读取数据点数量
-        let num_points = u16_from_le_bytes(&v, 0);
-        let mut pos = 4; // 跳过前4字节（数量 + 2字节跳过）
-
-        let mut last_price = 0i32;
-
-        for _ in 0..num_points {
-            // 变长编码最多 5 字节，每点 3 个字段；数据不足时立即停止
-            if v.len() - pos < 3 {
-                break;
+            // 新协议：头 11 字节中的 code 与请求一致（市场号在 v[4]，0=深 1=沪）
+            let is_new = v.len() >= 11
+                && v[2..4] == [0, 0]
+                && &v[5..11] == self.code.as_bytes();
+            if is_new {
+                if let Some(data) = locate_data_block(&v, num_points) {
+                    self.data = data;
+                }
+                self.response = v;
+                return;
             }
-            let Some(price_raw) = price_checked(&v, &mut pos) else {
-                self.response = v;
-                return; // 字节越界：格式不符，返回空数据
-            };
-            let Some(_reversed1) = price_checked(&v, &mut pos) else {
-                self.response = v;
-                return;
-            };
-            let Some(vol) = price_checked(&v, &mut pos) else {
-                self.response = v;
-                return;
-            };
 
-            // 累加计算实际价格
-            last_price += price_raw;
-            let price = last_price as f64 / 100.0;
-
-            self.data.push(MinuteTimeData { price, vol });
-        }
-
-        // 防御性校验：
-        // 1. 点数必须完整（协议变化时 varint 边界错位，点数几乎必然不齐）
-        // 2. 响应字节应基本耗尽（允许少量尾部填充）
-        // 3. 首点为开盘价，必须大于 0；所有价格需在 A 股合理范围内
-        let points_complete = self.data.len() == num_points as usize;
-        let bytes_consumed = points_complete && pos + 8 >= v.len();
-        let prices_valid = self
-            .data
-            .iter()
-            .all(|d| (0.01..=100000.0).contains(&d.price));
-
-        if !points_complete || !bytes_consumed || !prices_valid {
-            self.data = Vec::new(); // 协议不匹配，不输出垃圾数据
+            // 旧协议：头 4 字节（数量 + 跳过）后即数据
+            if let Some((data, end)) = decode_points(&v, 4, num_points) {
+                let points_complete = data.len() == num_points;
+                let bytes_consumed = points_complete && end + 8 >= v.len();
+                let prices_valid = data
+                    .iter()
+                    .all(|d| (0.01..=100000.0).contains(&d.price));
+                if points_complete && bytes_consumed && prices_valid {
+                    self.data = data;
+                }
+            }
         }
 
         self.response = v;
@@ -177,6 +160,65 @@ pub(crate) fn price_checked(arr: &[u8], pos: &mut usize) -> Option<i32> {
     }
     *pos += 1;
     Some(if sign { res } else { -res })
+}
+
+/// 定位 2026 新协议响应中的分时数据块并解码。
+///
+/// 响应 = 头 11 字节 + 可变个数头部 varint（盘口快照，实测 29~32 个，
+/// 随行情内容浮动，无法正向跳过）+ `num × 3` 个数据 varint，数据块
+/// **恰好耗尽到响应末尾**。
+///
+/// varint 编码非自同步（一个 bit7=0 字节既可能是单字节 varint，也可能是
+/// 多字节 varint 的末续字节），从尾部反向切分不唯一，故正向穷举头部结束
+/// 位置：数据块须恰好读满 `num × 3` 个 varint 且结束于响应末尾，叠加价格
+/// 合理性校验（实测沪深主板多只股票下该解唯一）。
+fn locate_data_block(v: &[u8], num_points: usize) -> Option<Vec<MinuteTimeData>> {
+    // 收集 offset 11 起全部 varint 的起始字节位置
+    let mut starts = Vec::new();
+    let mut pos = 11;
+    while pos < v.len() {
+        starts.push(pos);
+        price_checked(v, &mut pos)?;
+    }
+
+    let need = num_points * 3;
+    if need == 0 {
+        return Some(Vec::new());
+    }
+    // 头部结束位置的候选：其后须仍有 N×3 个 varint
+    if starts.len() < need {
+        return None;
+    }
+    for &start in &starts[..=starts.len() - need] {
+        if let Some((data, end)) = decode_points(v, start, num_points) {
+            let prices_valid = data
+                .iter()
+                .all(|d| (0.01..=100000.0).contains(&d.price));
+            if end == v.len() && prices_valid {
+                return Some(data);
+            }
+        }
+    }
+    None
+}
+
+/// 从 `pos` 起解码 `num` 个分时点（每点 3 个 varint：价格增量 / 保留 / 成交量），
+/// 价格按增量累加还原，返回数据与结束位置；任一字节越界返回 `None`。
+fn decode_points(v: &[u8], pos: usize, num: usize) -> Option<(Vec<MinuteTimeData>, usize)> {
+    let mut pos = pos;
+    let mut out = Vec::with_capacity(num.min(241));
+    let mut last_price = 0i32;
+    for _ in 0..num {
+        let price_raw = price_checked(v, &mut pos)?;
+        let _reversed1 = price_checked(v, &mut pos)?;
+        let vol = price_checked(v, &mut pos)?;
+        last_price += price_raw;
+        out.push(MinuteTimeData {
+            price: last_price as f64 / 100.0,
+            vol,
+        });
+    }
+    Some((out, pos))
 }
 
 #[cfg(test)]
@@ -249,22 +291,91 @@ mod tests {
         assert_eq!(mt.result()[1].vol, 80);
     }
 
-    /// 2026-09-04 实测的新协议响应（服务器在数据前新增 market+code 头、编码已变），
-    /// 旧解析逻辑产出垃圾数据。防御性校验应返回空数据而非垃圾。
+    /// 2026-09-07 开盘实测的完整新协议响应（深市 000001，盘中 195 点）：
+    /// 头 11 字节（数量+跳过+market+code）+ 可变头部 varint + 195×3 数据 varint，
+    /// 数据块顶到响应末尾。反向切分定位数据块后应完整解析。
     #[test]
-    fn parse_new_protocol_returns_empty() {
-        let hex = "1f000000003030303030319d02a81244460847a5f1c409e8128cf21cba0208a4864d84da0c89981000bfaf0700018c1a851b4102ae1b9e3142038f29a31543048d20861144058940ad16cd1700000000";
+    fn parse_new_protocol() {
+        let hex = "c300000000303030303031320f921213111245af9cbe0dd212bea973a801f933844e859b3dba8e3600b5ec08410090129a6b42018128901d43028b559a308c0fa2126c95d6034241a9d7020066a1e101415690b7010166a1d401415397b1010048ab6d41508ecc0141518c8a01015189a70101478285010041be5d0044a7700001bb7d004087320041be3a414785734149bc6b0245b85c0141b22e4141be360042a032434fb8ea0100459e4f43df01a098064272afd5020049b83e415a81b3010053b38301006a96b5024150968101015bb9dc01414dbd6441508b74014e9f6a4154899501025aa1f30101488a6d4146b7510044843b0145b34e014492424144833e4449b95c024c8a7b41478048415182a8010049895b0147a14a0148a86c414691500148bd634142931a0043b72a0148ad74014693694141801a00419e0e0144aa570042842043468a5a00429d1a0144bb34004dbdbd010042ac1c0041bc0e4142891c014c949d014142931d004386274254b3f3010044a02a0045aa3e0043a91e0148bf644246bd4300438325004d868801014bbe840100439c230042b9110145963d0042af194143992c01489f750041a414414187120143ac2d4244af2f0141961141469b470047964f4144a52f0144b82b4142a61b0049b46b0047ba4e0142a7160045a9440043b0234142bf1301429a150044ab2c01439d2c00428f234141870d004297230143be2b4244bc350043942a0141911000428f1f414190100242ab1f4243bd2742518dd201014695470142a7160042921500439623004ba096010145974a004398330144ad4600429d2542438a320042a5240042bc190047b964014385310041bb0c0042ac1f0141900d00438c44004395400046b37241418e120141841742418d17004182100045b44b4141b30e0042b02800429d1c0141981741449f3b01438a304141910f0046a36301418d160043903d014397304144a54e0042ab2b0041870c00418212414394380044ad3e004290280041b71600408608014485510041bb170041940d0041b3170141840d4140bb090041b2160143bc3c00418f1300419c0f00439a5501409d094140b7080141a80f0041a4130041b52300418e0e4141981300419a1f01438c4c00419e1a4141ad170244bc714242ae3701428f3741408c0a0142a22641439047004192270140b90c0041be1d014193244141a62a0140a004";
         let v: Vec<u8> = (0..hex.len())
             .step_by(2)
             .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
             .collect();
         let mut mt = MinuteTime::new(0, "000001");
         mt.parse(v);
+        assert_eq!(mt.result().len(), 195, "应完整解析 195 个点");
+        let prices: Vec<f64> = mt.result().iter().map(|d| d.price).collect();
+        let max = prices.iter().cloned().fold(0.0, f64::max);
+        let min = prices.iter().cloned().fold(f64::INFINITY, f64::min);
         assert!(
-            mt.result().is_empty(),
-            "新协议响应应返回空数据，实际解析出 {} 个点",
-            mt.result().len()
+            (9.0..=15.0).contains(&prices[0]) && (9.0..=15.0).contains(&max) && (9.0..=15.0).contains(&min),
+            "价格应在平安银行当日合理区间: 首={:.2} 高={:.2} 低={:.2}",
+            prices[0], max, min
         );
+        // 价格序列自洽：所有点均为正且末点接近最新价（样本时刻 11.68 附近）
+        assert!(prices.iter().all(|p| *p > 0.0));
+        assert!((prices[prices.len() - 1] - 11.68).abs() < 0.10);
+    }
+
+    /// 2026-09-07 实测的沪市新协议响应（600000，195 点）——code 锚点同样成立。
+    #[test]
+    fn parse_new_protocol_shanghai() {
+        let hex = "c3000000013630303030308c0e9c0e13131645a5a0be0ddc0e92ef5d09dfa12a4e93ff2fbfef2d00918e0300018d03bf114102b81882234203a444be080d08ae0e58b1e30142a601a0d802027083a301435bb37a02629c7043e00190c2030255ab94010142b7514247966603028345010aa55001088630430dbd8b010303ab27000bb8554106b13f0002831a0002a11c010489300106bf34430bbf784243b2574149b98f014148bd544258b7ad014150a85e41529e6c004da946004ea34e006786c6014259b18a0100479b230063acb8010049ae2d004a9437425794760258a18101004aa3460047b131004d9b550045ac224143a217004eb85e44c1018ef302014fbd4f0048ad2a0048852c41738e9f02014d8852014bb454004fa7750149814c4145b629004baf6a03478a500347bd8a014142a33c0043bf4b4141931e4141b51a4143b2300141880e4142a3200142b71d0043ad2f41419a140042a01e004288160041920d424ab76e0149ad6100459a3e0141a5090043bc2f4141b70d4143a32501408f0400409c050043922a41519bb80101428f1701448c334141af0e0143ae3141428b2401409e064142971c0041a9114143a7234141810d0142b81b41429d190043851c0041ac054144af29004184090142b2130041900e0045bd350043a6240143a421004289140041a40b0041a2074142a11e0141800a0041900b0042a7154144903100429d1800408a050041af070042b1190040a70300428d15424bb27600418c0e01439c240041801000439d2144718ef703024e837b0046be3b004a916b00439b20424682370143981d0043aa1841498c5401459f3500419d090144b9300044972f0143ac1e4145983c0042a01c426087cc0201458a364149aa5b4141bd0b41638ccf020048904b0044a625005898d7010041af0d0044a92a0143ac204145ab3001418d0c0041a20a0042871c0146a44441458e39004a816b4141910c00439c1f4142ab140143a02301418d084143a4250141b8090042aa120043bb2901418d120043af270041aa0a0041a20800408205004680500142ba1d4141820d0141880e4142ac1a0141a2080141b51741418b0e0141b0090041b80d0040ae0700418f184142b7210140b1064142a4220041951500418b19004181164140b00301408d074141a0160141b3110040a40400419b1a0041bd100140b0054140ae01";
+        let v: Vec<u8> = (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+            .collect();
+        let mut mt = MinuteTime::new(1, "600000");
+        mt.parse(v);
+        assert_eq!(mt.result().len(), 195, "应完整解析 195 个点");
+        let prices: Vec<f64> = mt.result().iter().map(|d| d.price).collect();
+        assert!(prices.iter().all(|p| (8.0..=11.0).contains(p)));
+    }
+
+    /// code 锚点不匹配（伪造的 code 头）→ 不走新协议路径，返回空。
+    #[test]
+    fn parse_new_protocol_code_mismatch_returns_empty() {
+        // 把 "000001" 换成 "999999"（0x39），数据区无法通过旧协议校验
+        let mut v = vec![0x02, 0x00, 0x00, 0x00, 0x00];
+        v.extend_from_slice(b"999999");
+        v.extend_from_slice(&[0x84, 0x0e, 0x00, 0xa4, 0x01, 0x32, 0x00, 0x90, 0x01]);
+        let mut mt = MinuteTime::new(0, "000001");
+        mt.parse(v);
+        assert!(mt.result().is_empty());
+    }
+
+    /// 正向穷举定位：头部 2 个 varint（+100, -9）+ 数据 2 点 6 个 varint
+    /// （+900, 0, 100 / +50, 0, 80），恰好耗尽到末尾 → 应解出 2 点。
+    #[test]
+    fn locate_data_block_finds_unique_start() {
+        // 头 11 字节 + 头部 varint [+100(0xe4 0x00), -9(0x49)] + 数据
+        let mut v = vec![0u8; 11];
+        v.extend_from_slice(&[0xe4, 0x00, 0x49]); // +100, -9
+        v.extend_from_slice(&[0x84, 0x0e, 0x00, 0xa4, 0x01]); // +900, 0, 100
+        v.extend_from_slice(&[0x32, 0x00, 0x90, 0x01]); // +50, 0, 80
+        let data = super::locate_data_block(&v, 2).expect("应定位数据块");
+        assert_eq!(data.len(), 2);
+        assert_eq!(data[0].price, 9.0);
+        assert_eq!(data[0].vol, 100);
+        assert_eq!(data[1].price, 9.5);
+        assert_eq!(data[1].vol, 80);
+    }
+
+    /// 数据块未耗尽到响应末尾（尾部残留 varint）→ 无解返回 None。
+    #[test]
+    fn locate_data_block_requires_full_consumption() {
+        let mut v = vec![0u8; 11];
+        v.extend_from_slice(&[0x84, 0x0e, 0x00, 0x64]); // 1 点: +900, 0, 100
+        v.extend_from_slice(&[0x32]); // 残留 +50（凑不齐合法价格序列）
+        assert!(super::locate_data_block(&v, 1).is_none());
+    }
+
+    /// 点数声明超出实际 varint 数 → None。
+    #[test]
+    fn locate_data_block_insufficient_vars() {
+        let mut v = vec![0u8; 11];
+        v.extend_from_slice(&[0x84, 0x0e, 0x00, 0xa4, 0x01]); // 仅 2 个 varint
+        assert!(super::locate_data_block(&v, 5).is_none());
     }
 
     /// 截断的响应：点数声明 10 但数据只有 1 点 → 返回空。
