@@ -105,9 +105,7 @@ impl<'a> Tdx for MinuteTime<'a> {
             let num_points = u16_from_le_bytes(&v, 0) as usize;
 
             // 新协议：头 11 字节中的 code 与请求一致（市场号在 v[4]，0=深 1=沪）
-            let is_new = v.len() >= 11
-                && v[2..4] == [0, 0]
-                && &v[5..11] == self.code.as_bytes();
+            let is_new = v.len() >= 11 && v[2..4] == [0, 0] && &v[5..11] == self.code.as_bytes();
             if is_new {
                 if let Some(data) = locate_data_block(&v, num_points) {
                     self.data = data;
@@ -120,9 +118,7 @@ impl<'a> Tdx for MinuteTime<'a> {
             if let Some((data, end)) = decode_points(&v, 4, num_points) {
                 let points_complete = data.len() == num_points;
                 let bytes_consumed = points_complete && end + 8 >= v.len();
-                let prices_valid = data
-                    .iter()
-                    .all(|d| (0.01..=100000.0).contains(&d.price));
+                let prices_valid = data.iter().all(|d| (0.01..=100000.0).contains(&d.price));
                 if points_complete && bytes_consumed && prices_valid {
                     self.data = data;
                 }
@@ -191,9 +187,7 @@ fn locate_data_block(v: &[u8], num_points: usize) -> Option<Vec<MinuteTimeData>>
     }
     for &start in &starts[..=starts.len() - need] {
         if let Some((data, end)) = decode_points(v, start, num_points) {
-            let prices_valid = data
-                .iter()
-                .all(|d| (0.01..=100000.0).contains(&d.price));
+            let prices_valid = data.iter().all(|d| (0.01..=100000.0).contains(&d.price));
             if end == v.len() && prices_valid {
                 return Some(data);
             }
@@ -308,9 +302,13 @@ mod tests {
         let max = prices.iter().cloned().fold(0.0, f64::max);
         let min = prices.iter().cloned().fold(f64::INFINITY, f64::min);
         assert!(
-            (9.0..=15.0).contains(&prices[0]) && (9.0..=15.0).contains(&max) && (9.0..=15.0).contains(&min),
+            (9.0..=15.0).contains(&prices[0])
+                && (9.0..=15.0).contains(&max)
+                && (9.0..=15.0).contains(&min),
             "价格应在平安银行当日合理区间: 首={:.2} 高={:.2} 低={:.2}",
-            prices[0], max, min
+            prices[0],
+            max,
+            min
         );
         // 价格序列自洽：所有点均为正且末点接近最新价（样本时刻 11.68 附近）
         assert!(prices.iter().all(|p| *p > 0.0));

@@ -125,9 +125,8 @@ impl Client {
         begin: Option<u32>,
         end: Option<u32>,
     ) -> std::io::Result<Vec<super::KlineData<'a>>> {
-        let ctx = format_args!(
-            "Client::bars_range(market={market}, code={code}, category={category})"
-        );
+        let ctx =
+            format_args!("Client::bars_range(market={market}, code={code}, category={category})");
         fetch_bars_range(&mut self.tcp, market, code, category, begin, end)
             .map_err(|e| ctx_err(e, ctx))
     }
@@ -211,7 +210,9 @@ impl Client {
             return Ok(Vec::new());
         }
         let workers = match max_parallel {
-            0 => std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4),
+            0 => std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4),
             n => n,
         }
         .min(stocks.len())
@@ -258,9 +259,104 @@ impl Client {
         let mut out = Vec::with_capacity(stocks.len());
         for (i, &(market, code)) in stocks.iter().enumerate() {
             let result = results.lock().unwrap()[i].take().unwrap_or_else(|| {
-                Err(std::io::Error::other("worker 未能处理该股票（连接建立失败）"))
+                Err(std::io::Error::other(
+                    "worker 未能处理该股票（连接建立失败）",
+                ))
             });
             out.push(BatchKline {
+                market,
+                code,
+                result,
+            });
+        }
+        Ok(out)
+    }
+
+    /// 批量拉取多只股票任意周期 K 线区间（内部连接池并行，不占用当前连接）。
+    ///
+    /// 分钟线等短周期数据的**全市场回补**配套：每只股票走 [`Client::bars_range`]
+    /// 同一套防护（自动翻页、去重、乱码年份终止、窗口过滤、升序），多连接并行。
+    ///
+    /// # 参数
+    ///
+    /// - `stocks`: `(market, code)` 列表（market: 0=深市、1=沪市）；
+    /// - `category`: K 线种类（0=5m、1=15m、…、9=日线）；
+    /// - `begin`/`end`: 日期区间（YYYYMMDD，闭区间），`None` 不设限；
+    /// - `max_parallel`: 并行连接数上限；传 `0` 按 CPU 核数自动。
+    ///   建议 4~16——服务器有连接数限制，过大会触发拒连。
+    ///
+    /// 按输入顺序返回；单只失败不影响其他（失败信息在对应 [`BatchBars::result`] 中）。
+    pub fn bars_batch<'a>(
+        &self,
+        stocks: &[(u16, &'a str)],
+        category: u16,
+        begin: Option<u32>,
+        end: Option<u32>,
+        max_parallel: usize,
+    ) -> std::io::Result<Vec<BatchBars<'a>>> {
+        if stocks.is_empty() {
+            return Ok(Vec::new());
+        }
+        let workers = match max_parallel {
+            0 => std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4),
+            n => n,
+        }
+        .min(stocks.len())
+        .max(1);
+
+        let pool = ConnectionPool::new(workers)?;
+        let queue: BatchQueue<'a> = Arc::new(Mutex::new(
+            stocks
+                .iter()
+                .enumerate()
+                .map(|(i, &(m, c))| (i, m, c))
+                .collect(),
+        ));
+        let results: BatchResults<'a> =
+            Arc::new(Mutex::new((0..stocks.len()).map(|_| None).collect()));
+
+        // 固定 worker 数 = 连接池大小：每个 worker 持一条连接处理队列
+        std::thread::scope(|s| {
+            for _ in 0..workers {
+                let queue = Arc::clone(&queue);
+                let results = Arc::clone(&results);
+                let pool = pool.clone();
+                s.spawn(move || {
+                    let Ok(mut conn) = pool.get_connection() else {
+                        return;
+                    };
+                    loop {
+                        let item = queue.lock().unwrap().pop_front();
+                        let Some((idx, market, code)) = item else {
+                            break;
+                        };
+                        let r = conn.execute(|tcp| {
+                            fetch_bars_range(tcp, market, code, category, begin, end).map_err(|e| {
+                                ctx_err(
+                                    e,
+                                    format_args!(
+                                        "bars_batch(market={market}, code={code}, \
+                                             category={category})"
+                                    ),
+                                )
+                            })
+                        });
+                        results.lock().unwrap()[idx] = Some(r);
+                    }
+                });
+            }
+        });
+
+        let mut out = Vec::with_capacity(stocks.len());
+        for (i, &(market, code)) in stocks.iter().enumerate() {
+            let result = results.lock().unwrap()[i].take().unwrap_or_else(|| {
+                Err(std::io::Error::other(
+                    "worker 未能处理该股票（连接建立失败）",
+                ))
+            });
+            out.push(BatchBars {
                 market,
                 code,
                 result,
@@ -334,17 +430,15 @@ impl Client {
     pub fn minute(&mut self, market: u16, code: &str) -> std::io::Result<Vec<MinuteTimeData>> {
         let ctx = format_args!("Client::minute(market={market}, code={code})");
         let mut mt = super::MinuteTime::new(market, code);
-        mt.recv_parsed(&mut self.tcp)
-            .map_err(|e| ctx_err(e, ctx))?;
+        mt.recv_parsed(&mut self.tcp).map_err(|e| ctx_err(e, ctx))?;
         if !mt.result().is_empty() {
             return Ok(mt.result().to_vec());
         }
 
         // 回退：当日分时接口不可用 → 今日历史分时接口（协议稳定）
         let mut hmt = HistoryMinuteTime::new(market, code, today_yyyymmdd());
-        hmt.recv_parsed(&mut self.tcp).map_err(|e| {
-            ctx_err(e, format_args!("{ctx}（回退到今日历史分时）"))
-        })?;
+        hmt.recv_parsed(&mut self.tcp)
+            .map_err(|e| ctx_err(e, format_args!("{ctx}（回退到今日历史分时）")))?;
         Ok(hmt.result().to_vec())
     }
 
@@ -418,7 +512,10 @@ impl Client {
     pub fn xdxr(&mut self, market: u16, code: &str) -> std::io::Result<Vec<super::XdxrData>> {
         let mut xdxr = Xdxr::new(market, code);
         xdxr.recv_parsed(&mut self.tcp).map_err(|e| {
-            ctx_err(e, format_args!("Client::xdxr(market={market}, code={code})"))
+            ctx_err(
+                e,
+                format_args!("Client::xdxr(market={market}, code={code})"),
+            )
         })?;
         Ok(xdxr.result().to_vec())
     }
@@ -426,7 +523,9 @@ impl Client {
     /// 板块文件（mootdx `block`），如 `"block_gn.dat"` 概念板块。
     pub fn block(&mut self, block_file: &str) -> crate::Result<Vec<BlockRecord>> {
         super::get_block_info(&mut self.tcp, block_file).map_err(|e| {
-            crate::Error::Io(std::io::Error::other(format!("Client::block({block_file}): {e}")))
+            crate::Error::Io(std::io::Error::other(format!(
+                "Client::block({block_file}): {e}"
+            )))
         })
     }
 
@@ -442,7 +541,9 @@ impl Client {
     /// 全部证券列表（mootdx `stocks`），自动分页聚合。
     pub fn stocks(&mut self, market: u16) -> crate::Result<Vec<SecurityListData>> {
         super::stocks(&mut self.tcp, market).map_err(|e| {
-            crate::Error::Io(std::io::Error::other(format!("Client::stocks(market={market}): {e}")))
+            crate::Error::Io(std::io::Error::other(format!(
+                "Client::stocks(market={market}): {e}"
+            )))
         })
     }
 
@@ -456,9 +557,9 @@ impl Client {
         for item in cat.result() {
             let mut content =
                 CompanyInfoContent::new(market, code, &item.filename, item.start, item.length);
-            content.recv_parsed(&mut self.tcp).map_err(|e| {
-                ctx_err(e, format_args!("{ctx}（栏目 {}）", item.name))
-            })?;
+            content
+                .recv_parsed(&mut self.tcp)
+                .map_err(|e| ctx_err(e, format_args!("{ctx}（栏目 {}）", item.name)))?;
             result.push((item.name.clone(), std::mem::take(&mut content.data)));
         }
         Ok(result)
@@ -622,10 +723,7 @@ fn fetch_k<'a>(
         }
         if let Some(begin) = begin {
             // 页内最旧数据已早于 begin，停止翻页（min 而非 first，顺序无关）
-            if let Some(oldest) = all
-                .iter()
-                .map(|b| DateTime::to_u32(b.dt))
-                .min()
+            if let Some(oldest) = all.iter().map(|b| DateTime::to_u32(b.dt)).min()
                 && oldest < begin
             {
                 break;
@@ -657,6 +755,17 @@ pub struct BatchKline<'a> {
     /// 6 位股票代码
     pub code: &'a str,
     /// 该股票拉取结果
+    pub result: std::io::Result<Vec<KlineData<'a>>>,
+}
+
+/// [`Client::bars_batch`] 单项结果（结构同 [`BatchKline`]，任意周期）。
+#[derive(Debug)]
+pub struct BatchBars<'a> {
+    /// 市场代码（0=深市、1=沪市）
+    pub market: u16,
+    /// 6 位股票代码
+    pub code: &'a str,
+    /// 该股票拉取结果（按时间升序）
     pub result: std::io::Result<Vec<KlineData<'a>>>,
 }
 
@@ -750,22 +859,24 @@ mod tests {
 
     #[test]
     fn adjusted_multipliers_no_xdxr() {
-        use super::adjusted_multipliers;
         use super::Adj;
+        use super::adjusted_multipliers;
         // 无除权：scale 恒 1 → 前/后复权乘数均为 1
-        let days = vec![
-            kd(20260101, 10.0),
-            kd(20260102, 11.0),
-            kd(20260105, 12.0),
-        ];
-        assert_eq!(adjusted_multipliers(&days, &[], Adj::Qfq), vec![1.0, 1.0, 1.0]);
-        assert_eq!(adjusted_multipliers(&days, &[], Adj::Hfq), vec![1.0, 1.0, 1.0]);
+        let days = vec![kd(20260101, 10.0), kd(20260102, 11.0), kd(20260105, 12.0)];
+        assert_eq!(
+            adjusted_multipliers(&days, &[], Adj::Qfq),
+            vec![1.0, 1.0, 1.0]
+        );
+        assert_eq!(
+            adjusted_multipliers(&days, &[], Adj::Hfq),
+            vec![1.0, 1.0, 1.0]
+        );
     }
 
     #[test]
     fn adjusted_multipliers_split() {
-        use super::adjusted_multipliers;
         use super::Adj;
+        use super::adjusted_multipliers;
         // 10 送 10：除权参考价 = 前收/2 → scale 减半
         let days = vec![
             kd(20260105, 20.0),
@@ -786,17 +897,14 @@ mod tests {
 
     #[test]
     fn adjusted_multipliers_cash_and_rights() {
-        use super::adjusted_multipliers;
         use super::Adj;
+        use super::adjusted_multipliers;
         // 每 10 股派 5 元 + 每 10 股配 3 股（配股价 2 元）：
         // 参考价 = (20*10 - 5 + 3*2) / (10 + 3) = 201/13 ≈ 15.4615 → 四舍五入 15.46
         let days = vec![kd(20260105, 20.0), kd(20260106, 15.0), kd(20260107, 15.5)];
         let xdxrs = vec![xdxr(20260106, 5.0, 0.0, 3.0, 2.0)];
         let m = adjusted_multipliers(&days, &xdxrs, Adj::Hfq);
-        assert!(
-            (m[1] - (20.0 / 15.46)).abs() < 1e-9,
-            "实际 {m:?}"
-        );
+        assert!((m[1] - (20.0 / 15.46)).abs() < 1e-9, "实际 {m:?}");
     }
 
     /// 除权参考价与交易所口径一致（四舍五入到分）。
@@ -813,15 +921,18 @@ mod tests {
 
     #[test]
     fn adjusted_multipliers_suspended_xdxr_day() {
-        use super::adjusted_multipliers;
         use super::Adj;
+        use super::adjusted_multipliers;
         // 除权日为停牌日（无 K 线）：事件顺延到下一交易日处理，
         // 仍用除权前最后一个交易日收盘作为 preclose
         let days = vec![kd(20260102, 20.0), kd(20260106, 10.0)];
         let xdxrs = vec![xdxr(20260105, 0.0, 10.0, 0.0, 0.0)]; // 01-05 除权，01-06 才恢复交易
         let m = adjusted_multipliers(&days, &xdxrs, Adj::Hfq);
         assert!((m[0] - 1.0).abs() < 1e-9);
-        assert!((m[1] - 2.0).abs() < 1e-9, "停牌顺延后乘数应为 2，实际 {m:?}");
+        assert!(
+            (m[1] - 2.0).abs() < 1e-9,
+            "停牌顺延后乘数应为 2，实际 {m:?}"
+        );
     }
 
     fn kd(date: u32, close: f64) -> super::KlineData<'static> {

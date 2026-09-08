@@ -41,7 +41,7 @@ impl Fq {
     pub fn new(days: impl ExactSizeIterator<Item = Day> + Clone, g1: &[Gbbq]) -> Option<Vec<Fq>> {
         let count = days.len();
         let mut fqs: Vec<Fq> = Vec::with_capacity(count + 128);
-        let mut preclose = days.clone().next()?.close as f64;
+        let mut preclose = days.clone().next()?.close;
         let mut factor = 1.;
         let mut gbbq = g1.iter();
         let mut xdxr = gbbq.next()?;
@@ -75,7 +75,7 @@ impl Fq {
                 // 下个除权日之前的交易日，或者最后一个除权日的交易日
                 fqs.push(Self::_0(&d, xdxr, preclose, &mut factor, true, false));
             }
-            preclose = d.close as f64;
+            preclose = d.close;
         }
 
         // 确保所有数据都被正确解析：必须满足两个条件
@@ -138,7 +138,7 @@ impl Fq {
                 // 下个除权日之前的交易日，或者最后一个除权日的交易日
                 fqs.push(Self::_0(&d, xdxr, preclose, &mut factor, true, false));
             }
-            preclose = d.close as f64;
+            preclose = d.close;
         }
 
         // 确保所有数据都被正确解析：必须满足两个条件
@@ -165,11 +165,11 @@ impl Fq {
     }
 
     pub fn no_gbbq(days: impl ExactSizeIterator<Item = Day> + Clone) -> Option<Vec<Fq>> {
-        let mut preclose = days.clone().next()?.close as f64;
+        let mut preclose = days.clone().next()?.close;
         let mut factor = 1.;
         Some(
             days.map(|d| {
-                let close = d.close as f64;
+                let close = d.close;
                 factor *= close / preclose;
                 let fq = Self {
                     close,

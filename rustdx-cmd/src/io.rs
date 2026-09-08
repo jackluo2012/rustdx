@@ -41,10 +41,14 @@ where
             .filter_map(|f| {
                 let s = f.to_str().unwrap();
                 let (b, code) = cmd.filter_ec(s);
-                filter(b, f.as_path(), hm.as_ref(), dir).unwrap_or(false)
+                filter(b, f.as_path(), hm.as_ref(), dir)
+                    .unwrap_or(false)
                     .then_some((code, f))
             })
-            .take(cmd.amount.unwrap_or_else(|| filter_file(dir).map(|it| it.count()).unwrap_or(0)))
+            .take(
+                cmd.amount
+                    .unwrap_or_else(|| filter_file(dir).map(|it| it.count()).unwrap_or(0)),
+            )
             .collect();
         let n = work.len();
         info!("dir: {dir:?} day 文件数量：{n}");
@@ -52,7 +56,9 @@ where
 
         let count = AtomicUsize::new(0); // 成功解析的文件数
         let next = AtomicUsize::new(0); // 任务队列：原子取下一个文件
-        let workers = thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+        let workers = thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4);
         let (tx, rx) = mpsc::channel::<Vec<T>>();
 
         // 所有 worker 共享的引用：原子计数器与任务列表
@@ -64,16 +70,18 @@ where
         thread::scope(|s| {
             for _ in 0..workers {
                 let tx = tx.clone();
-                s.spawn(move || loop {
-                    let i = next.fetch_add(1, Ordering::Relaxed);
-                    if i >= work.len() {
-                        break;
-                    }
-                    let (code, src) = &work[i];
-                    if let Ok(v) = parse(code, src) {
-                        count.fetch_add(1, Ordering::Relaxed);
-                        // 发送失败说明主线程已退出，直接结束
-                        let _ = tx.send(v);
+                s.spawn(move || {
+                    loop {
+                        let i = next.fetch_add(1, Ordering::Relaxed);
+                        if i >= work.len() {
+                            break;
+                        }
+                        let (code, src) = &work[i];
+                        if let Ok(v) = parse(code, src) {
+                            count.fetch_add(1, Ordering::Relaxed);
+                            // 发送失败说明主线程已退出，直接结束
+                            let _ = tx.send(v);
+                        }
                     }
                 });
             }
@@ -114,7 +122,9 @@ pub fn run_csv(cmd: &DayCmd) -> Result<()> {
         .buffer_capacity(BUFFER_SIZE)
         .from_writer(file);
     run_par(cmd, &mut wtr, |code, src| {
-        Ok(rustdx_complete::file::day::Day::from_file_into_vec(code, src)?)
+        Ok(rustdx_complete::file::day::Day::from_file_into_vec(
+            code, src,
+        )?)
     })
 }
 
@@ -280,10 +290,10 @@ pub fn setup_clickhouse(fq: bool, table: &str) -> Result<()> {
             (
                 `date` Date CODEC(DoubleDelta),
                 `code` String,
-                `open` Float32,
-                `high` Float32,
-                `low` Float32,
-                `close` Float32,
+                `open` Float64,
+                `high` Float64,
+                `low` Float64,
+                `close` Float64,
                 `amount` Float64,
                 `vol` Float64,
                 `preclose` Float64,
@@ -298,10 +308,10 @@ pub fn setup_clickhouse(fq: bool, table: &str) -> Result<()> {
             (
                 `date` Date CODEC(DoubleDelta),
                 `code` String,
-                `open` Float32,
-                `high` Float32,
-                `low` Float32,
-                `close` Float32,
+                `open` Float64,
+                `high` Float64,
+                `low` Float64,
+                `close` Float64,
                 `amount` Float64,
                 `vol` Float64
             )

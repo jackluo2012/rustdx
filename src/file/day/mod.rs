@@ -25,11 +25,11 @@ pub struct Day {
     pub date: u32,
     #[serde(serialize_with = "ser_code_string")]
     pub code: String,
-    pub open: f32,
-    pub high: f32,
-    pub low: f32,
-    pub close: f32,
-    pub amount: f32,
+    pub open: f64,
+    pub high: f64,
+    pub low: f64,
+    pub close: f64,
+    pub amount: f64,
     #[serde(serialize_with = "ser_vol")]
     pub vol: u32,
 }
@@ -38,7 +38,7 @@ fn ser_vol<S>(vol: &u32, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
-    serializer.serialize_f32(*vol as f32 / 100.)
+    serializer.serialize_f64(*vol as f64 / 100.)
 }
 
 impl Day {
@@ -68,11 +68,11 @@ impl Day {
         use crate::bytes_helper::{f32_from_le_bytes, u32_from_le_bytes};
         Self {
             date: u32_from_le_bytes(arr, 0),
-            open: u32_from_le_bytes(arr, 4) as f32 / 100.,
-            high: u32_from_le_bytes(arr, 8) as f32 / 100.,
-            low: u32_from_le_bytes(arr, 12) as f32 / 100.,
-            close: u32_from_le_bytes(arr, 16) as f32 / 100.,
-            amount: f32_from_le_bytes(arr, 20),
+            open: u32_from_le_bytes(arr, 4) as f64 / 100.,
+            high: u32_from_le_bytes(arr, 8) as f64 / 100.,
+            low: u32_from_le_bytes(arr, 12) as f64 / 100.,
+            close: u32_from_le_bytes(arr, 16) as f64 / 100.,
+            amount: f32_from_le_bytes(arr, 20) as f64,
             vol: u32_from_le_bytes(arr, 24),
             code: code.to_owned(),
         }

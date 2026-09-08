@@ -27,9 +27,7 @@ fn minute_time_live_matches_history() -> std::io::Result<()> {
     let mut client = Client::new()?;
     for (market, code) in [(0u16, "000001"), (1, "600000")] {
         let live = client.minute(market, code)?;
-        if skip_if_no_live(
-            &live.iter().map(|d| (d.price, d.vol)).collect::<Vec<_>>(),
-        ) {
+        if skip_if_no_live(&live.iter().map(|d| (d.price, d.vol)).collect::<Vec<_>>()) {
             return Ok(());
         }
 

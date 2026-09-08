@@ -25,9 +25,7 @@ pub fn gbk_to_string_trim_null(bytes: &[u8]) -> String {
 /// 注意：默认 15 时（即 `DateTime::default().hour == 15`）。
 /// 派生 `Ord`：字段顺序即时间序（年→月→日→时→分），
 /// K 线/分时序列的「升序契约」直接依赖它。
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
 pub struct DateTime {
     pub year: u16,
     pub month: u16,
@@ -178,10 +176,34 @@ mod tests {
     /// 派生 `Ord`：字段顺序即时间序，K 线升序契约直接依赖它。
     #[test]
     fn datetime_ord_is_chronological() {
-        let a = DateTime { year: 2026, month: 9, day: 7, hour: 9, minute: 35 };
-        let b = DateTime { year: 2026, month: 9, day: 7, hour: 15, minute: 0 };
-        let c = DateTime { year: 2026, month: 9, day: 8, hour: 9, minute: 30 };
-        let d = DateTime { year: 2027, month: 1, day: 1, hour: 0, minute: 0 };
+        let a = DateTime {
+            year: 2026,
+            month: 9,
+            day: 7,
+            hour: 9,
+            minute: 35,
+        };
+        let b = DateTime {
+            year: 2026,
+            month: 9,
+            day: 7,
+            hour: 15,
+            minute: 0,
+        };
+        let c = DateTime {
+            year: 2026,
+            month: 9,
+            day: 8,
+            hour: 9,
+            minute: 30,
+        };
+        let d = DateTime {
+            year: 2027,
+            month: 1,
+            day: 1,
+            hour: 0,
+            minute: 0,
+        };
         assert!(a < b && b < c && c < d);
         // Copy 语义（排序/去重按值使用）
         let k = a;

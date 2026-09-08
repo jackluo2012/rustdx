@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.9.0 (2026-09-08)
+
+### 🚀 `Client::bars_batch` — 连接池并行区间回补（任意周期）
+
+- 批量拉取多只股票任意周期 K 线（0=5m、…、9=日线）：每只走 `bars_range`
+  同一套防护（自动翻页/去重/乱码年份终止/窗口过滤/升序），内部连接池并行
+  （同 `k_batch` 模式，建议 max_parallel 4~16）；
+- 实盘对照测试：`bars_batch` 并行路径与 `bars_range` 单连接路径逐根一致；
+- 分钟线全市场回补配套（原单连接逐股回补约 1 小时级的场景）。
+
+### 🔧 day 文件解析价格字段 f32 → f64（精度修复）
+
+- `file::day::Day` / fq 版 `Day` 的 open/high/low/close/amount/vol 由 f32
+  改为 f64：源数据是 u32 整数分（`/100`），f32 仅 ~7 位有效数字会引入尾差
+  （实测 139,323,904 股在 CSV 输出为 1393239.0 手丢失 `.04`）；
+- `gbbq::compute_pre_pct(close: f64)` 签名同步；
+- `rustdx day -o clickhouse` 建表 DDL 价格列同步 Float32 → Float64
+  **（rustdx-cli v1.7.1）**；已有旧表可 `ALTER TABLE ... MODIFY COLUMN` 或
+  重建后重新导入；
+- 快照更新：`fq__day_sz000001` / `file_day__serde-type-csv-string`（f64
+  精确输出，如 vol `1393239.04` 手）。
+
 ## rustdx-cli v1.7.0 (2026-09-08)
 
 ### 🔌 day 命令 ClickHouse 导出改走 HTTP（认证/远程可用）

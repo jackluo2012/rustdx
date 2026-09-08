@@ -10,12 +10,12 @@ use std::path::Path;
 pub struct Day {
     pub date: String,
     pub code: String,
-    pub open: f32,
-    pub high: f32,
-    pub low: f32,
-    pub close: f32,
-    pub amount: f32,
-    pub vol: f32,
+    pub open: f64,
+    pub high: f64,
+    pub low: f64,
+    pub close: f64,
+    pub amount: f64,
+    pub vol: f64,
     pub preclose: f64,
     pub factor: f64,
 }
@@ -45,7 +45,7 @@ impl Day {
                 low: d.low,
                 close: d.close,
                 amount: d.amount,
-                vol: d.vol as f32 / 100.,
+                vol: d.vol as f64 / 100.,
                 preclose: f.preclose,
                 factor: f.factor,
             })
@@ -88,7 +88,7 @@ impl Day {
                 low: d.low,
                 close: d.close,
                 amount: d.amount,
-                vol: d.vol as f32 / 100.,
+                vol: d.vol as f64 / 100.,
                 preclose: f.preclose,
                 factor: f.factor,
             })

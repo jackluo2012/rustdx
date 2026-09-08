@@ -70,11 +70,7 @@ impl EastCmd {
             // 排除掉无数据的股票：停牌、未上市之类
             if let (&Some(c), &Some(p)) = (&row.close, &row.preclose) {
                 // 东方财富返回的是 6 位裸代码，需拼上市场前缀才能匹配 factor（含市场前缀）
-                let key = format!(
-                    "{}{}",
-                    crate::cmd::auto_prefix("auto", &row.code),
-                    row.code
-                );
+                let key = format!("{}{}", crate::cmd::auto_prefix("auto", &row.code), row.code);
                 if let Some(f) = previous.get(&key) {
                     row.factor = c as f64 / p as f64 * f.factor;
                     // 1. 由于数据源不同导致有误差，无法比较相等；

@@ -7,8 +7,8 @@
 //! 响应不同 → 服务器支持复权，后续 `k()` 可暴露该参数。
 
 use rustdx_complete::tcp::Tdx;
-use rustdx_complete::tcp::{self, Tcp};
 use rustdx_complete::tcp::stock::Kline;
+use rustdx_complete::tcp::{self, Tcp};
 
 #[test]
 fn probe_kline_adj_field() -> std::io::Result<()> {

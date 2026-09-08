@@ -7,12 +7,12 @@ pub struct Day {
     /// `date` 为 `%Y-%m-%d` 文本格式
     pub date: String,
     pub code: String,
-    pub open: f32,
-    pub high: f32,
-    pub low: f32,
-    pub close: f32,
-    pub amount: f32,
-    pub vol: f32,
+    pub open: f64,
+    pub high: f64,
+    pub low: f64,
+    pub close: f64,
+    pub amount: f64,
+    pub vol: f64,
 }
 
 impl Day {
@@ -39,7 +39,7 @@ impl Day {
             // 单位：元
             amount,
             // 转换成手：方便与其他数据源汇合
-            vol: vol as f32 / 100.,
+            vol: vol as f64 / 100.,
         }
     }
 

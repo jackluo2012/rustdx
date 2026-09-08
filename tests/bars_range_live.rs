@@ -5,7 +5,7 @@
 //! - 去重：翻页偏移可能重叠；
 //! - 窗口：`[begin, end]` 闭区间（YYYYMMDD）；
 //! - 乱码年份（2004/2035）不得出现在窗口内结果中。
-use rustdx_complete::tcp::stock::{market_of, Client};
+use rustdx_complete::tcp::stock::{Client, market_of};
 
 fn date_of(dt: &rustdx_complete::tcp::helper::DateTime) -> u32 {
     dt.to_u32()
@@ -45,7 +45,12 @@ fn bars_range_5m_ordered_deduped_in_window() -> std::io::Result<()> {
             b.dt.hour, b.dt.minute
         );
     }
-    println!("5m 窗口: {} 根, {} ~ {}", bars.len(), date_of(&bars[0].dt), date_of(&bars[bars.len() - 1].dt));
+    println!(
+        "5m 窗口: {} 根, {} ~ {}",
+        bars.len(),
+        date_of(&bars[0].dt),
+        date_of(&bars[bars.len() - 1].dt)
+    );
     Ok(())
 }
 
@@ -101,5 +106,33 @@ fn recheck_empty_config_no_regression() -> std::io::Result<()> {
         assert!(w[0].dt < w[1].dt);
     }
     let _ = market_of("000001"); // market_of 与 limit::board_of 前缀判定保持可用
+    Ok(())
+}
+
+/// bars_batch（连接池并行路径）与 bars_range（单连接路径）单只结果逐根一致。
+#[test]
+fn bars_batch_matches_single() -> std::io::Result<()> {
+    if std::env::var("RUSTDX_SKIP_INTEGRATION_TESTS").is_ok() {
+        println!("⚠️  跳过集成测试 (RUSTDX_SKIP_INTEGRATION_TESTS 已设置)");
+        return Ok(());
+    }
+
+    let stocks = [(1u16, "600519"), (0, "000001"), (1, "600000")];
+    let mut client = Client::new()?;
+    let batch = client.bars_batch(&stocks, 9, Some(20260601), Some(20260907), 3)?;
+    assert_eq!(batch.len(), stocks.len(), "按输入顺序返回");
+    for (i, b) in batch.iter().enumerate() {
+        assert_eq!(b.market, stocks[i].0);
+        assert_eq!(b.code, stocks[i].1);
+        let got = b.result.as_ref().expect("单只拉取不应失败");
+        assert!(!got.is_empty());
+        let single =
+            client.bars_range(stocks[i].0, stocks[i].1, 9, Some(20260601), Some(20260907))?;
+        assert_eq!(got.len(), single.len(), "{}: 行数不一致", stocks[i].1);
+        for (gb, sb) in got.iter().zip(&single) {
+            assert_eq!(gb.dt, sb.dt, "{}: 日期不一致", stocks[i].1);
+            assert!((gb.close - sb.close).abs() < 1e-9);
+        }
+    }
     Ok(())
 }

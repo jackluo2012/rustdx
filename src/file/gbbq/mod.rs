@@ -94,14 +94,13 @@ impl<'a> Gbbq<'a> {
     }
 
     #[inline]
-    pub fn compute_pre_pct(&self, close: f32, mut preclose: f64, flag: bool) -> [f64; 3] {
+    pub fn compute_pre_pct(&self, close: f64, mut preclose: f64, flag: bool) -> [f64; 3] {
         if flag {
             preclose = (preclose * 10. - self.fh_qltp as f64
                 + self.pg_hzgb as f64 * self.pgj_qzgb as f64)
                 / (10. + self.pg_hzgb as f64 + self.sg_hltp as f64)
         }
 
-        let close = close as f64;
         [preclose, close, close / preclose]
     }
 

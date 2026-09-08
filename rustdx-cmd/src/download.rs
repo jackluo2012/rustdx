@@ -14,7 +14,7 @@ use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
-use eyre::{bail, eyre, Result};
+use eyre::{Result, bail, eyre};
 use serde::{Deserialize, Serialize};
 
 /// 通达信官网日线完整包默认地址。
@@ -56,7 +56,10 @@ pub fn prepare_hsjday_dirs_from(url: &str) -> Result<Vec<PathBuf>> {
     // 1. 下载（服务器文件未变化 → 跳过下载）
     let head = head_info(url).ok(); // 探测失败不阻塞，见下方判断
     if zip_cached(url, &zip_path, &meta, head.as_ref()) {
-        log::info!("缓存命中：服务器文件未变化，跳过下载 {}", zip_path.display());
+        log::info!(
+            "缓存命中：服务器文件未变化，跳过下载 {}",
+            zip_path.display()
+        );
     } else {
         download_with_fallback(url, &zip_path)?;
         let zip_len = std::fs::metadata(&zip_path)?.len();
@@ -67,9 +70,7 @@ pub fn prepare_hsjday_dirs_from(url: &str) -> Result<Vec<PathBuf>> {
             size: zip_len,
             downloaded_ok: true,
             extracted_ok: false,
-            downloaded_at: chrono::Local::now()
-                .format("%Y-%m-%d %H:%M:%S")
-                .to_string(),
+            downloaded_at: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
         };
         write_meta(&meta_path, &meta)?;
     }
@@ -129,7 +130,10 @@ fn download_with_fallback(initial_url: &str, zip_path: &Path) -> Result<()> {
     }
     log::warn!(
         "连续 3 次下载失败，进入交互模式：{}",
-        last_err.as_ref().map(|e| format!("{e:#}")).unwrap_or_default()
+        last_err
+            .as_ref()
+            .map(|e| format!("{e:#}"))
+            .unwrap_or_default()
     );
 
     let fallback = prompt_fallback()?;
@@ -213,9 +217,7 @@ fn download(url: &str, dest: &Path) -> Result<()> {
 
 /// 下载失败后的交互：询问用户提供备选 URL 或本地 zip 文件路径。
 fn prompt_fallback() -> Result<String> {
-    eprintln!(
-        "下载失败。请提供备选下载地址（URL）或本地 zip 文件路径（直接回车退出）："
-    );
+    eprintln!("下载失败。请提供备选下载地址（URL）或本地 zip 文件路径（直接回车退出）：");
     let mut line = String::new();
     std::io::stdin().read_line(&mut line)?;
     let s = line.trim().to_string();

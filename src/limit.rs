@@ -74,9 +74,9 @@ pub fn board_of(code: &str) -> Option<Board> {
         // 创业板 300/301/302
         [b'3', b'0', b'0'..=b'2', ..] => Some(Board::ChiNext),
         // 北交所 43/82/83/87/88/92
-        [b'4', b'3', ..]
-        | [b'8', b'2' | b'3' | b'7' | b'8', ..]
-        | [b'9', b'2', ..] => Some(Board::Beijing),
+        [b'4', b'3', ..] | [b'8', b'2' | b'3' | b'7' | b'8', ..] | [b'9', b'2', ..] => {
+            Some(Board::Beijing)
+        }
         _ => None,
     }
 }
@@ -105,7 +105,9 @@ pub fn limit_up_price(prev_close: f64, board: Board, st: bool) -> Option<f64> {
     if !prev_close.is_finite() || prev_close <= 0.0 {
         return None;
     }
-    Some(round_fen(prev_close * (1.0 + board.limit_pct_for(st) / 100.0)))
+    Some(round_fen(
+        prev_close * (1.0 + board.limit_pct_for(st) / 100.0),
+    ))
 }
 
 /// 跌停价（正常交易日）。非法输入同 [`limit_up_price`]。
@@ -113,7 +115,9 @@ pub fn limit_down_price(prev_close: f64, board: Board, st: bool) -> Option<f64> 
     if !prev_close.is_finite() || prev_close <= 0.0 {
         return None;
     }
-    Some(round_fen(prev_close * (1.0 - board.limit_pct_for(st) / 100.0)))
+    Some(round_fen(
+        prev_close * (1.0 - board.limit_pct_for(st) / 100.0),
+    ))
 }
 
 /// 个股当日相对涨停价的状态。
@@ -145,7 +149,13 @@ impl LimitStatus {
 /// - 否则 → [`LimitStatus::Untouched`]。
 ///
 /// `prev_close` 非法时返回 `None`（调用方应跳过该日，如上市首日）。
-pub fn limit_status(close: f64, high: f64, prev_close: f64, board: Board, st: bool) -> Option<LimitStatus> {
+pub fn limit_status(
+    close: f64,
+    high: f64,
+    prev_close: f64,
+    board: Board,
+    st: bool,
+) -> Option<LimitStatus> {
     let up = limit_up_price(prev_close, board, st)?;
     if same_fen(close, up) {
         Some(LimitStatus::Sealed)
@@ -222,11 +232,20 @@ mod tests {
     fn limit_status_classification() {
         let _up = limit_up_price(4.26, Board::Main, false).unwrap(); // 4.69
         // 收盘 = 涨停 → 封板（浮点免疫：4.69 vs 4.689999）
-        assert_eq!(limit_status(4.69, 4.69, 4.26, Board::Main, false), Some(LimitStatus::Sealed));
+        assert_eq!(
+            limit_status(4.69, 4.69, 4.26, Board::Main, false),
+            Some(LimitStatus::Sealed)
+        );
         // 盘中触板（high = 涨停）但收盘未封住 → 炸板
-        assert_eq!(limit_status(4.60, 4.69, 4.26, Board::Main, false), Some(LimitStatus::Blown));
+        assert_eq!(
+            limit_status(4.60, 4.69, 4.26, Board::Main, false),
+            Some(LimitStatus::Blown)
+        );
         // 未触板
-        assert_eq!(limit_status(4.60, 4.65, 4.26, Board::Main, false), Some(LimitStatus::Untouched));
+        assert_eq!(
+            limit_status(4.60, 4.65, 4.26, Board::Main, false),
+            Some(LimitStatus::Untouched)
+        );
         // 首日 prev_close = 0 → None
         assert_eq!(limit_status(4.69, 4.69, 0.0, Board::Main, false), None);
     }

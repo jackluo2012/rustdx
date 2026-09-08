@@ -14,7 +14,12 @@ fn tcp_k_batch_matches_k() -> std::io::Result<()> {
         return Ok(());
     }
 
-    let stocks = [(1u16, "600000"), (0, "000001"), (1, "600519"), (0, "000858")];
+    let stocks = [
+        (1u16, "600000"),
+        (0, "000001"),
+        (1, "600519"),
+        (0, "000858"),
+    ];
     let client = Client::new()?;
     let batch = client.k_batch(&stocks, Some(20250101), None, 4)?;
     assert_eq!(batch.len(), stocks.len(), "返回数量应等于输入数量");
@@ -110,10 +115,7 @@ fn tcp_k_adjusted_qfq_hfq() -> std::io::Result<()> {
         let gap_raw = raw[i].open / raw[i - 1].close - 1.0;
         // 前复权序列：同日的跳空（应为真实日内波动，而非除权跳空）
         let gap_q = qfq[i].open / qfq[i - 1].close - 1.0;
-        println!(
-            "除权日 {d}: 原始跳空 {:.4} → 前复权 {:.4}",
-            gap_raw, gap_q
-        );
+        println!("除权日 {d}: 原始跳空 {:.4} → 前复权 {:.4}", gap_raw, gap_q);
         checked += 1;
         if gap_raw.abs() > 0.01 {
             assert!(

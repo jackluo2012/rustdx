@@ -4,8 +4,8 @@
 //! 下一次请求应触发「失败 → 自动重连 → 重发请求 → 成功」。
 //! 用 `RUSTDX_SKIP_INTEGRATION_TESTS=1` 可跳过。
 
-use rustdx_complete::tcp::stock::Client;
 use rustdx_complete::tcp::TcpConfig;
+use rustdx_complete::tcp::stock::Client;
 use std::net::Shutdown;
 
 #[test]
