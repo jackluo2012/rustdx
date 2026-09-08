@@ -94,7 +94,15 @@ fn minute_time_live_multi_server() -> std::io::Result<()> {
     assert!(results.len() >= 2, "可用服务器不足 2 台，无法对照");
     for w in results.windows(2) {
         let (a, b) = (&w[0], &w[1]);
-        assert_eq!(a.1, b.1, "服务器 #{} 与 #{} 点数不一致", a.0, b.0);
+        // 跨分钟边界（如 xx:59:58 vs xx:00:01）点数可能差 1：允许 ±1
+        assert!(
+            (a.1 as i64 - b.1 as i64).abs() <= 1,
+            "服务器 #{} 与 #{} 点数差过大: {} vs {}",
+            a.0,
+            b.0,
+            a.1,
+            b.1
+        );
         assert!(
             (a.2 - b.2).abs() <= 0.02,
             "服务器 #{} 与 #{} 末点价格不一致: {:.2} vs {:.2}",
