@@ -20,7 +20,7 @@
 - **本地 day 文件并发解析**：rustdx-cli 多线程并行解析（线程数=逻辑核心数），并支持带字母的特殊品种代码（如深市板块指数 `sz200b07`）
 - **技术指标**：SMA/EMA/MACD/RSI/布林带/KDJ
 - **辅助能力**：交易日历、智能缓存、连接池、Builder 模式 API、数据验证
-- **227 个测试**（含真实抓包字节的回归测试），clippy 零警告
+- **229 个测试**（含真实抓包字节的回归测试），clippy 零警告
 
 ## 📦 安装
 
@@ -231,7 +231,7 @@ $ rustdx east -p clickhouse -o clickhouse -t rustdx.factor
 ## 🧪 测试
 
 ```console
-$ cargo test --workspace   # 197 个测试（含实盘网络验证）
+$ cargo test --workspace   # 235 个测试（含实盘网络验证）
 $ cargo clippy --workspace --all-targets   # 零警告
 ```
 

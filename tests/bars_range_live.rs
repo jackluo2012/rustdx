@@ -136,3 +136,37 @@ fn bars_batch_matches_single() -> std::io::Result<()> {
     }
     Ok(())
 }
+
+/// `Client::index_bars_range` 指数日线区间契约（0x052d 专用命令；
+/// 股票 `k`/`bars_range` 对指数代码返回空——shortmind-os 实测踩坑）。
+#[test]
+fn index_bars_range_day_contract() -> std::io::Result<()> {
+    if std::env::var("RUSTDX_SKIP_INTEGRATION_TESTS").is_ok() {
+        println!("⚠️  跳过集成测试 (RUSTDX_SKIP_INTEGRATION_TESTS 已设置)");
+        return Ok(());
+    }
+
+    let mut client = Client::new()?;
+    // 上证指数（market=1, code=000001）
+    let bars = client.index_bars_range(1, "000001", 9, Some(20260801), Some(20260909))?;
+    assert!(!bars.is_empty(), "指数日线窗口不应为空");
+
+    // 升序 + 去重（相邻严格递增）
+    for w in bars.windows(2) {
+        assert!(w[0].dt < w[1].dt, "时间序列必须严格升序且去重");
+    }
+    // 窗口过滤 + 年份合理
+    for b in &bars {
+        let d = date_of(&b.dt);
+        assert!((20260801..=20260909).contains(&d), "越窗日期: {d}");
+        assert!(b.close > 0.0 && b.amount > 0.0, "行情字段应非零");
+    }
+    println!(
+        "指数日线窗口: {} 根, {} ~ {}，末根 close={:.2}",
+        bars.len(),
+        date_of(&bars[0].dt),
+        date_of(&bars[bars.len() - 1].dt),
+        bars[bars.len() - 1].close
+    );
+    Ok(())
+}

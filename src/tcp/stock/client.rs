@@ -15,8 +15,8 @@
 
 use super::{
     BlockRecord, CompanyInfoCategory, CompanyInfoCategoryItem, CompanyInfoContent, FinanceInfoData,
-    HistoryMinuteTime, HistoryTransaction, IndexKline, Kline, KlineData, MinuteTimeData, QuoteData,
-    SecurityListData, TransactionData, Xdxr, XdxrData,
+    HistoryMinuteTime, HistoryTransaction, IndexKline, IndexKlineData, Kline, KlineData,
+    MinuteTimeData, QuoteData, SecurityListData, TransactionData, Xdxr, XdxrData,
 };
 use crate::pool::ConnectionPool;
 use crate::tcp::helper::DateTime;
@@ -132,6 +132,9 @@ impl Client {
     }
 
     /// 指数K线（mootdx `index`/`index_bars`），含涨跌家数。
+    ///
+    /// 注意：股票K线命令（0x052c）对指数代码返回**空**结果，指数必须走本方法
+    /// （0x052d 指数专用命令）；区间语义请用 [`Client::index_bars_range`]。
     pub fn index_bars<'a>(
         &mut self,
         market: u16,
@@ -148,6 +151,31 @@ impl Client {
             )
         })?;
         Ok(kline.result().to_vec())
+    }
+
+    /// 指数K线区间回补：[`Client::index_bars`] 的自动翻页版，
+    /// 与 [`Client::bars_range`](Self::bars_range) 完全对称（0x052d 指数专用命令）。
+    ///
+    /// - 自动翻页直至覆盖 `begin` 或历史尽头（页序无关，末端统一升序）；
+    /// - 翻页偏移可能重叠 → 按时间戳去重；
+    /// - 最终按 `[begin, end]` 窗口过滤。
+    ///
+    /// # 参数
+    ///
+    /// - `begin`/`end`: 日期区间（YYYYMMDD，闭区间），`None` 表示不设限。
+    pub fn index_bars_range<'a>(
+        &mut self,
+        market: u16,
+        code: &'a str,
+        category: u16,
+        begin: Option<u32>,
+        end: Option<u32>,
+    ) -> std::io::Result<Vec<super::IndexKlineData<'a>>> {
+        let ctx = format_args!(
+            "Client::index_bars_range(market={market}, code={code}, category={category})"
+        );
+        fetch_index_bars_range(&mut self.tcp, market, code, category, begin, end)
+            .map_err(|e| ctx_err(e, ctx))
     }
 
     /// 按日期区间拉取日K线（mootdx `k`）。
@@ -667,6 +695,65 @@ fn fetch_bars_range<'a>(
     }
 
     // 升序 + 翻页偏移重叠去重（排序后重复时间戳相邻）+ 窗口过滤（丢弃乱码日期页残留）
+    all.sort_by_key(|b| b.dt);
+    all.dedup_by_key(|b| b.dt);
+    all.retain(|bar| {
+        let d = DateTime::to_u32(bar.dt);
+        begin.is_none_or(|b| d >= b) && end.is_none_or(|e| d <= e)
+    });
+    Ok(all)
+}
+
+/// 从给定连接按日期区间拉取指数K线：自动翻页、去重、窗口过滤、升序。
+///
+/// 与 [`fetch_bars_range`]（股票 0x052c）对称，命令为 0x052d 指数专用；
+/// 翻页判停/去重/乱码年份终止/窗口过滤同一套约定。
+fn fetch_index_bars_range<'a>(
+    tcp: &mut Tcp,
+    market: u16,
+    code: &'a str,
+    category: u16,
+    begin: Option<u32>,
+    end: Option<u32>,
+) -> std::io::Result<Vec<IndexKlineData<'a>>> {
+    let _ = tcp.config(); // 保留扩展点：页级退避等
+    let mut all: Vec<IndexKlineData<'a>> = Vec::new();
+    let mut start = 0u16;
+    let mut pages = 0usize;
+    loop {
+        let mut kline = IndexKline::new(market, code, category, start, BARS_PAGE);
+        kline.recv_parsed(tcp)?;
+        let bars = kline.result().to_vec();
+        let n = bars.len();
+        // 页内最旧一根（顺序无关；乱码日期页由下方年份校验拦截）
+        let oldest = bars.iter().map(|b| b.dt).min();
+        all.extend(bars);
+        pages += 1;
+        if n < BARS_PAGE as usize {
+            break; // 历史尽头
+        }
+        let Some(oldest) = oldest else {
+            break;
+        };
+        if !(2000..=2070).contains(&oldest.year) {
+            break; // 服务器历史深度耗尽，开始返回乱码日期
+        }
+        if let Some(begin) = begin {
+            // 页内最旧数据已早于 begin，停止翻页（min 判停，顺序无关）
+            if DateTime::to_u32(oldest) < begin {
+                break;
+            }
+        }
+        if pages >= MAX_BARS_PAGES {
+            break;
+        }
+        start = start.saturating_add(BARS_PAGE);
+        if start == 0 {
+            break; // u16 溢出，服务器历史已耗尽
+        }
+    }
+
+    // 升序 + 翻页偏移重叠去重 + 窗口过滤
     all.sort_by_key(|b| b.dt);
     all.dedup_by_key(|b| b.dt);
     all.retain(|bar| {

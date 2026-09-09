@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.10.0 (2026-09-09)
+
+### 🚀 `Client::index_bars_range` — 指数K线区间回补（与 `bars_range` 对称）
+
+- 指数K线专用命令（0x052d）的自动翻页区间版：自动翻页至覆盖 `begin`、
+  去重、窗口过滤、升序——与股票侧 `bars_range`（0x052c）同一套契约；
+- **重要**：股票K线命令（0x052c）对指数代码返回**空**结果，指数必须走
+  0x052d（`index_bars` / `index_bars_range`）。此前消费方若用 `k` 拉指数
+  会静默得到空（ShortMind OS 实测踩坑）；
+- 实盘契约测试 `index_bars_range_day_contract`（上证指数日线窗口）。
+
 ## v1.9.0 (2026-09-08)
 
 ### 🚀 `Client::bars_batch` — 连接池并行区间回补（任意周期）
