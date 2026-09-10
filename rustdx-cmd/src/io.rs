@@ -265,6 +265,12 @@ impl ClickHouseConfig {
             eyre::bail!("ClickHouse HTTP {status}: {msg}");
         }
         debug!("clickhouse 导入完成：{table}（{len} 字节 CSV）");
+        // 输出数据边界：缓存解压目录可能滞后于最新交易日（实测 09-10 命中
+        // 09-06 的旧缓存，包行数相近极易误判为新包）——一眼确认新鲜度
+        let info = self.exec(&format!(
+            "SELECT concat(toString(count()), ' 行，数据截至 ', toString(max(dt))) FROM {table}"
+        ))?;
+        info!("day_file 数据边界: {info}");
         Ok(())
     }
 }
