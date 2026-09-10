@@ -46,6 +46,8 @@ impl<'d> SecurityQuotes<'d> {
     /// 当任何股票代码的长度不是6时，程序会panic。
     pub fn new(stocks: Vec<(u16, &'d str)>) -> Self {
         let count = stocks.len();
+        // 批量口径：协议单包上限 80；pytdx/mootdx/tdxrs 保守口径 60——
+        // 部分服务器对 >60 截断甚至计入限流。高频轮询场景建议 ≤60。
         assert!(count > 0 && count <= 80, "股票数量必须在1-80之间");
         for (_, code) in &stocks {
             assert_eq!(code.len(), 6, "股票代码必须是6位");

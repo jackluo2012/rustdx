@@ -100,15 +100,46 @@ pub fn tcp_connect_ok(addr: &SocketAddr, timeout: Duration) -> bool {
 /// 但结果可靠。所有服务器并发探测，总耗时约为最慢单台的耗时。
 /// 结果保持列表顺序。
 pub fn check_alive_protocol(timeout: Duration) -> Vec<SocketAddr> {
+    check_alive_protocol_inner(timeout)
+        .into_iter()
+        .map(|(addr, _)| addr)
+        .collect()
+}
+
+/// 协议级探测全部服务器，**按往返耗时升序**返回可用服务器及其 RTT。
+///
+/// 在 [`check_alive_protocol`]（保持列表顺序）基础上的选优变体：高频轮询
+/// 场景建议取 RTT 最小的一台建立长驻连接（对应 mootdx `bestip` 的
+/// 「自动测速选优」）。
+///
+/// ## 示例
+/// ```no_run
+/// use rustdx_complete::tcp::{ip, Tcp, TcpConfig};
+/// use std::time::Duration;
+///
+/// let ranked = ip::check_alive_by_rtt(Duration::from_secs(2));
+/// if let Some((fastest, rtt)) = ranked.first() {
+///     let config = TcpConfig { timeout: Duration::from_secs(5), ip: Some(*fastest), ..Default::default() };
+///     let mut tcp = Tcp::with_config(&config).unwrap();
+/// }
+/// ```
+pub fn check_alive_by_rtt(timeout: Duration) -> Vec<(SocketAddr, Duration)> {
+    let mut ranked = check_alive_protocol_inner(timeout);
+    ranked.sort_by_key(|(_, rtt)| *rtt);
+    ranked
+}
+
+/// 并发协议级探测的公共实现：`(地址, RTT)`，按列表顺序。
+fn check_alive_protocol_inner(timeout: Duration) -> Vec<(SocketAddr, Duration)> {
     use crate::tcp::TcpConfig;
     use std::thread;
 
     thread::scope(|s| {
         let handles: Vec<_> = STOCK_IP
             .iter()
-            .enumerate()
-            .map(|(i, addr)| {
+            .map(|addr| {
                 s.spawn(move || {
+                    let start = Instant::now();
                     let ok = Tcp::with_config(&TcpConfig {
                         timeout,
                         ip: Some(*addr),
@@ -116,13 +147,18 @@ pub fn check_alive_protocol(timeout: Duration) -> Vec<SocketAddr> {
                     })
                     .and_then(|mut tcp| tcp.heartbeat())
                     .is_ok();
-                    (i, ok.then_some(*addr))
+                    let rtt = start.elapsed();
+                    (ok.then_some(*addr), rtt)
                 })
             })
             .collect();
-        let mut results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-        results.sort_by_key(|(i, _)| *i);
-        results.into_iter().filter_map(|(_, a)| a).collect()
+        handles
+            .into_iter()
+            .filter_map(|h| {
+                let (addr, rtt) = h.join().unwrap();
+                addr.map(|a| (a, rtt))
+            })
+            .collect()
     })
 }
 

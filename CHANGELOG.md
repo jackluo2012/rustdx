@@ -1,5 +1,28 @@
 # Changelog
 
+## v1.11.0 (2026-09-10)
+
+### 🛡️ `Client::quotes` 接入 `recheck_empty` 静默限流防护
+
+- 盘中高频轮询场景下，TDX 服务器会对触发限流的客户端**静默返回空帧**
+  （协议正常、秒回 0 条，与限流前行为无法从返回值区分）；
+- `TcpConfig::recheck_empty = true` 时：空结果等 300ms → 重连 → 重拉一次，
+  仍空才返回空——消除抖动误判（与 K 线路径 `Client::k` / `bars_range`
+  同一套防护，ShortMind OS 盘中采集实测踩坑）；
+- 注意：非交易时段 quotes 本就为空，业务层应按时段判断后再调用。
+
+### 🚀 `ip::check_alive_by_rtt` — 探活选优（按 RTT 排序）
+
+- 在 `check_alive_protocol`（并发协议级探测、保持列表顺序）基础上的
+  选优变体：全部服务器并发探测后**按往返耗时升序**返回 `[(addr, rtt)]`；
+- 高频轮询场景建议取 RTT 最小的一台建立**长驻连接**（对应 mootdx
+  `bestip` 的自动测速选优）。
+
+### 📝 quotes 批量口径说明
+
+- `SecurityQuotesRef` 单包协议上限 80；pytdx/mootdx/tdxrs 保守口径 60
+  （部分服务器对 >60 截断甚至计入限流）——高频轮询场景建议 ≤60。
+
 ## v1.10.0 (2026-09-09)
 
 ### 🚀 `Client::index_bars_range` — 指数K线区间回补（与 `bars_range` 对称）

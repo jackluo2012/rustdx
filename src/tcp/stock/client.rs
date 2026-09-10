@@ -70,12 +70,25 @@ impl Client {
     }
 
     /// 实时行情快照（mootdx `quotes`）。返回 owned 数据。
+    ///
+    /// [`TcpConfig::recheck_empty`](crate::tcp::TcpConfig::recheck_empty)
+    /// 开启时空结果二次确认（等 300ms → 重连 → 重拉一次）——盘中高频轮询
+    /// 场景下服务器会静默返回空帧，二次确认可消除抖动误判。
+    ///
+    /// 注意：非交易时段 quotes 本就为空，业务层应按时段判断后再调用，
+    /// 否则每次都会多付一次重查代价。
     pub fn quotes(&mut self, stocks: &[(u16, &str)]) -> std::io::Result<Vec<QuoteData>> {
-        let mut quotes = SecurityQuotesRef::new(stocks.to_vec());
-        quotes
-            .recv_parsed(&mut self.tcp)
-            .map_err(|e| ctx_err(e, format_args!("Client::quotes(n={})", stocks.len())))?;
-        Ok(quotes.result().to_vec())
+        let run = |tcp: &mut Tcp| {
+            let mut quotes = SecurityQuotesRef::new(stocks.to_vec());
+            quotes.recv_parsed(tcp)?;
+            Ok(quotes.result().to_vec())
+        };
+        let result = if self.tcp.config().recheck_empty {
+            recheck_empty(&mut self.tcp, run)
+        } else {
+            run(&mut self.tcp)
+        };
+        result.map_err(|e| ctx_err(e, format_args!("Client::quotes(n={})", stocks.len())))
     }
 
     /// 股票K线（mootdx `bars`）。
