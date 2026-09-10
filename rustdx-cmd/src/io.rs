@@ -224,7 +224,16 @@ impl ClickHouseConfig {
         if !self.password.is_empty() {
             req = req.header("X-ClickHouse-Key", &self.password);
         }
-        let mut resp = req.send(sql.as_bytes()).map_err(|e| eyre!("{e}"))?;
+        let mut resp = req.send(sql.as_bytes()).map_err(|e| match e {
+            // 401/403 等鉴权类失败在 send 阶段即返回 StatusCode（ureq 3 不携带
+            // body）——实测多因 cwd 不在部署目录、CLICKHOUSE_* env 缺失
+            ureq::Error::StatusCode(code) => eyre!(
+                "ClickHouse HTTP {code}\
+                （鉴权/权限失败常见：CLICKHOUSE_URL/CLICKHOUSE_USER/\
+                 CLICKHOUSE_PASSWORD 环境变量须与部署 .env 一致，在部署目录下执行）"
+            ),
+            other => eyre!("{other}"),
+        })?;
         let status = resp.status().as_u16();
         let body = resp.body_mut().read_to_string().unwrap_or_default();
         if !(200..300).contains(&status) {
