@@ -1,5 +1,16 @@
 # Changelog
 
+## rustdx-cli v1.7.2 (2026-09-10)
+
+### 🔧 ClickHouse HTTP 诊断与数据边界输出
+
+- 鉴权失败（401/403）的错误信息补排查提示：CLICKHOUSE_URL/USER/PASSWORD
+  须与部署 .env 一致、在部署目录下执行（ureq 3 的 StatusCode 错误不携带
+  body，裸状态码无法定位——实测 cwd 不在部署目录踩坑）；
+- day_file 写入 CH 后回查 `count/max(dt)` 打印**数据边界日期**——无参数模式
+  可能命中本地缓存解压目录（行数相近极易误判为新包，实测 09-10 命中 09-06
+  旧缓存），一眼确认包新鲜度。
+
 ## v1.11.0 (2026-09-10)
 
 ### 🛡️ `Client::quotes` 接入 `recheck_empty` 静默限流防护
