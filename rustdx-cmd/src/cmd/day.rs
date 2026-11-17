@@ -86,7 +86,10 @@ impl DayCmd {
             "clickhouse" => self.run_clickhouse(),
             x if x.ends_with("csv") => self.run_csv(),
             "mongodb" => crate::io::run_mongodb(self),
-            _ => todo!(),
+            other => Err(eyre::eyre!(
+                "不支持的输出方式 {other:?}：请使用 `*.csv`、`clickhouse` 或 `mongodb`\
+                 （`rustdx day -h o` 查看说明）"
+            )),
         }
     }
 

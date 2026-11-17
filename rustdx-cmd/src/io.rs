@@ -249,63 +249,67 @@ impl ClickHouseConfig {
         }
     }
 
-    /// 执行 SQL（DDL/DML，body 即语句）。
-    fn exec(&self, sql: &str) -> Result<String> {
-        let mut req = ureq::post(&self.url).header("Content-Type", "text/plain; charset=utf-8");
-        // 认证 header（ClickHouse 原生 X-ClickHouse-User/Key）
+    /// 给请求加上认证 header（ClickHouse 原生 X-ClickHouse-User/Key），并关闭
+    /// 「4xx/5xx 即报错」：ClickHouse 的错误原因在响应体里，需要读出来。
+    fn request(&self, url: &str) -> ureq::RequestBuilder<ureq::typestate::WithBody> {
+        let mut req = ureq::post(url).config().http_status_as_error(false).build();
         if self.user != "default" || !self.password.is_empty() {
             req = req.header("X-ClickHouse-User", &self.user);
         }
         if !self.password.is_empty() {
             req = req.header("X-ClickHouse-Key", &self.password);
         }
-        let mut resp = req.send(sql.as_bytes()).map_err(|e| match e {
-            // 401/403 等鉴权类失败在 send 阶段即返回 StatusCode（ureq 3 不携带
-            // body）——实测多因 cwd 不在部署目录、CLICKHOUSE_* env 缺失
-            ureq::Error::StatusCode(code) => eyre!(
-                "ClickHouse HTTP {code}\
-                （鉴权/权限失败常见：CLICKHOUSE_URL/CLICKHOUSE_USER/\
-                 CLICKHOUSE_PASSWORD 环境变量须与部署 .env 一致，在部署目录下执行）"
-            ),
-            other => eyre!("{other}"),
-        })?;
+        req
+    }
+
+    /// 检查响应状态并返回响应体；失败时带上 ClickHouse 给出的原因。
+    fn check(mut resp: ureq::http::Response<ureq::Body>) -> Result<String> {
         let status = resp.status().as_u16();
         let body = resp.body_mut().read_to_string().unwrap_or_default();
-        if !(200..300).contains(&status) {
-            eyre::bail!("ClickHouse HTTP {status}: {body}");
+        if (200..300).contains(&status) {
+            return Ok(body);
         }
-        Ok(body)
+        let body = body.trim();
+        // 鉴权失败实测多因 cwd 不在部署目录、CLICKHOUSE_* env 缺失
+        let hint = if matches!(status, 401 | 403) {
+            "（鉴权失败：CLICKHOUSE_URL/CLICKHOUSE_USER/CLICKHOUSE_PASSWORD \
+             环境变量须与部署 .env 一致，在部署目录下执行）"
+        } else {
+            ""
+        };
+        Err(eyre!("ClickHouse HTTP {status}{hint}: {body}"))
+    }
+
+    /// 执行 SQL（DDL/DML，body 即语句）。
+    fn exec(&self, sql: &str) -> Result<String> {
+        let resp = self
+            .request(&self.url)
+            .header("Content-Type", "text/plain; charset=utf-8")
+            .send(sql.as_bytes())
+            .map_err(|e| eyre!("{e}"))?;
+        Self::check(resp)
     }
 
     /// 数据流导入（CSV 文件 → `INSERT INTO <table> FORMAT CSVWithNames`）。
     fn insert_csv(&self, table: &str, csv: &std::path::Path) -> Result<()> {
-        let file = std::fs::File::open(csv)?;
+        let mut file = std::fs::File::open(csv)?;
         let len = file.metadata()?.len();
         let sql = urlencode(&format!("INSERT INTO {table} FORMAT CSVWithNames"));
-        let mut req = ureq::post(&format!("{}/?query={sql}", self.url));
-        if self.user != "default" || !self.password.is_empty() {
-            req = req.header("X-ClickHouse-User", &self.user);
-        }
-        if !self.password.is_empty() {
-            req = req.header("X-ClickHouse-Key", &self.password);
-        }
-        let mut file = file;
-        let resp = req
+        let resp = self
+            .request(&format!("{}/?query={sql}", self.url))
             .send(ureq::SendBody::from_reader(&mut file))
             .map_err(|e| eyre!("{e}"))?;
-        let status = resp.status().as_u16();
-        if !(200..300).contains(&status) {
-            let mut resp = resp;
-            let msg = resp.body_mut().read_to_string().unwrap_or_default();
-            eyre::bail!("ClickHouse HTTP {status}: {msg}");
-        }
+        Self::check(resp)?;
         debug!("clickhouse 导入完成：{table}（{len} 字节 CSV）");
         // 输出数据边界：缓存解压目录可能滞后于最新交易日（实测 09-10 命中
-        // 09-06 的旧缓存，包行数相近极易误判为新包）——一眼确认新鲜度
-        let info = self.exec(&format!(
-            "SELECT concat(toString(count()), ' 行，数据截至 ', toString(max(dt))) FROM {table}"
-        ))?;
-        info!("day_file 数据边界: {info}");
+        // 09-06 的旧缓存，包行数相近极易误判为新包）——一眼确认新鲜度。
+        // 仅为诊断信息：查询失败不能让已经成功的导入以失败收场。
+        match self.exec(&format!(
+            "SELECT concat(toString(count()), ' 行，数据截至 ', toString(max(date))) FROM {table}"
+        )) {
+            Ok(info) => info!("day_file 数据边界: {}", info.trim()),
+            Err(e) => warn!("导入已完成，但查询数据边界失败: {e}"),
+        }
         Ok(())
     }
 }
@@ -484,7 +488,12 @@ pub fn run_mongodb(cmd: &DayCmd) -> Result<()> {
         "--columnsHaveTypes",
         "--fields=code.string()",
     ];
-    let output = Command::new("mongoimport").args(args).output()?;
+    let output = Command::new("mongoimport")
+        .args(args)
+        .output()
+        .map_err(|e| {
+            eyre!("无法运行 mongoimport（需安装 MongoDB Database Tools 并加入 PATH）: {e}")
+        })?;
     check_output("mongoimport", output)?;
     keep_csv(&cmd.output, cmd.keep_csv)?;
     Ok(())
