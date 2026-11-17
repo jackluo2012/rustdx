@@ -105,8 +105,27 @@ pub fn price(arr: &[u8], pos: &mut usize) -> i32 {
     if sign { res } else { -res }
 }
 
+/// Checked i32 varint decoder for network data; rejects truncation and overflow.
+pub(crate) fn price_checked(arr: &[u8], pos: &mut usize) -> Option<i32> {
+    let first = *arr.get(*pos)?;
+    *pos += 1;
+    let mut byte = first;
+    let mut value = i64::from(first & 0x3f);
+    let mut shift = 6;
+    while byte & 0x80 != 0 {
+        if shift > 27 {
+            return None;
+        }
+        byte = *arr.get(*pos)?;
+        *pos += 1;
+        value += i64::from(byte & 0x7f) << shift;
+        shift += 7;
+    }
+    i32::try_from(if first & 0x40 != 0 { -value } else { value }).ok()
+}
+
 pub fn vol_amount(ivol: i32) -> f64 {
-    let logpoint = ivol >> 24;
+    let logpoint = ((ivol as u32) >> 24) as i32;
     let hleax = (ivol >> 16) & 0xff;
     let lheax = (ivol >> 8) & 0xff;
     let lleax = ivol & 0xff;

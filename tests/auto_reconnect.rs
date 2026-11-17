@@ -40,7 +40,7 @@ fn tcp_auto_reconnect_after_shutdown() -> std::io::Result<()> {
     Ok(())
 }
 
-/// 默认 auto_reconnect=0 时，断线后请求应失败（保持旧行为）。
+/// 显式 auto_reconnect=0 时，断线后请求应失败（旧行为，需显式关闭重试）。
 #[test]
 fn tcp_no_auto_reconnect_fails_after_shutdown() -> std::io::Result<()> {
     if std::env::var("RUSTDX_SKIP_INTEGRATION_TESTS").is_ok() {
@@ -48,7 +48,10 @@ fn tcp_no_auto_reconnect_fails_after_shutdown() -> std::io::Result<()> {
         return Ok(());
     }
 
-    let mut c = Client::new()?; // 默认配置：不自动重连
+    let mut c = Client::with_config(&TcpConfig {
+        auto_reconnect: 0,
+        ..Default::default()
+    })?;
     let q1 = c.quotes(&[(1, "600000")])?;
     if q1.is_empty() {
         println!("⚠️  行情服务器限流中（quotes 空响应），跳过本次验证");
@@ -58,7 +61,7 @@ fn tcp_no_auto_reconnect_fails_after_shutdown() -> std::io::Result<()> {
 
     c.tcp.get_ref().0.shutdown(Shutdown::Both)?;
     let r = c.quotes(&[(1, "600000")]);
-    assert!(r.is_err(), "默认配置下断线后请求应失败");
-    println!("默认配置（auto_reconnect=0）断线后按预期失败 ✓");
+    assert!(r.is_err(), "关闭重试后断线请求应失败");
+    println!("auto_reconnect=0 断线后按预期失败 ✓");
     Ok(())
 }

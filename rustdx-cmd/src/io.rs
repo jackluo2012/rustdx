@@ -192,9 +192,44 @@ fn print(dir: &Path, count: usize, take: usize) {
     }
 }
 
-fn database_table(table: &str) -> (&str, &str) {
-    let pos = table.find('.').unwrap();
-    table.split_at(pos) // (database_name, table_name)
+/// 把 `库名.表名` 拆成 `(库名, 表名)`（表名不带前导 `.`）。
+///
+/// 库名、表名会被直接拼进 ClickHouse SQL，所以只允许 `[A-Za-z0-9_]`，
+/// 且必须恰好含一个 `.`（多个 `.` 时表名部分含非法字符，同样报错）。
+fn database_table(table: &str) -> Result<(&str, &str)> {
+    let valid =
+        |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
+    match table.split_once('.') {
+        Some((db, tb)) if valid(db) && valid(tb) => Ok((db, tb)),
+        _ => Err(eyre!(
+            "表名 {table:?} 不合法：应为 `库名.表名` 格式，且库名、表名只能包含字母、数字、下划线"
+        )),
+    }
+}
+
+#[test]
+fn test_database_table() {
+    // 合法
+    assert_eq!(database_table("rustdx.tmp").unwrap(), ("rustdx", "tmp"));
+    assert_eq!(database_table("db_1.Day_2").unwrap(), ("db_1", "Day_2"));
+    // 无点、库名或表名为空
+    for s in ["", "rustdx", ".tmp", "rustdx.", "."] {
+        assert!(database_table(s).is_err(), "{s:?}");
+    }
+    // 多个点：不支持，报错
+    assert!(database_table("a.b.c").is_err());
+    // 非法字符（含 SQL 注入、空白、反引号、非 ASCII）
+    for s in [
+        "rustdx.tmp; DROP TABLE x",
+        "rust dx.tmp",
+        "rustdx.`tmp`",
+        "rustdx.tmp-1",
+        "库.表",
+    ] {
+        assert!(database_table(s).is_err(), "{s:?}");
+    }
+    let msg = database_table("tmp").unwrap_err().to_string();
+    assert!(msg.contains("库名.表名"), "{msg}");
 }
 
 /// ClickHouse HTTP 连接配置（环境变量，约定与生态一致）。
@@ -214,63 +249,67 @@ impl ClickHouseConfig {
         }
     }
 
-    /// 执行 SQL（DDL/DML，body 即语句）。
-    fn exec(&self, sql: &str) -> Result<String> {
-        let mut req = ureq::post(&self.url).header("Content-Type", "text/plain; charset=utf-8");
-        // 认证 header（ClickHouse 原生 X-ClickHouse-User/Key）
+    /// 给请求加上认证 header（ClickHouse 原生 X-ClickHouse-User/Key），并关闭
+    /// 「4xx/5xx 即报错」：ClickHouse 的错误原因在响应体里，需要读出来。
+    fn request(&self, url: &str) -> ureq::RequestBuilder<ureq::typestate::WithBody> {
+        let mut req = ureq::post(url).config().http_status_as_error(false).build();
         if self.user != "default" || !self.password.is_empty() {
             req = req.header("X-ClickHouse-User", &self.user);
         }
         if !self.password.is_empty() {
             req = req.header("X-ClickHouse-Key", &self.password);
         }
-        let mut resp = req.send(sql.as_bytes()).map_err(|e| match e {
-            // 401/403 等鉴权类失败在 send 阶段即返回 StatusCode（ureq 3 不携带
-            // body）——实测多因 cwd 不在部署目录、CLICKHOUSE_* env 缺失
-            ureq::Error::StatusCode(code) => eyre!(
-                "ClickHouse HTTP {code}\
-                （鉴权/权限失败常见：CLICKHOUSE_URL/CLICKHOUSE_USER/\
-                 CLICKHOUSE_PASSWORD 环境变量须与部署 .env 一致，在部署目录下执行）"
-            ),
-            other => eyre!("{other}"),
-        })?;
+        req
+    }
+
+    /// 检查响应状态并返回响应体；失败时带上 ClickHouse 给出的原因。
+    fn check(mut resp: ureq::http::Response<ureq::Body>) -> Result<String> {
         let status = resp.status().as_u16();
         let body = resp.body_mut().read_to_string().unwrap_or_default();
-        if !(200..300).contains(&status) {
-            eyre::bail!("ClickHouse HTTP {status}: {body}");
+        if (200..300).contains(&status) {
+            return Ok(body);
         }
-        Ok(body)
+        let body = body.trim();
+        // 鉴权失败实测多因 cwd 不在部署目录、CLICKHOUSE_* env 缺失
+        let hint = if matches!(status, 401 | 403) {
+            "（鉴权失败：CLICKHOUSE_URL/CLICKHOUSE_USER/CLICKHOUSE_PASSWORD \
+             环境变量须与部署 .env 一致，在部署目录下执行）"
+        } else {
+            ""
+        };
+        Err(eyre!("ClickHouse HTTP {status}{hint}: {body}"))
+    }
+
+    /// 执行 SQL（DDL/DML，body 即语句）。
+    fn exec(&self, sql: &str) -> Result<String> {
+        let resp = self
+            .request(&self.url)
+            .header("Content-Type", "text/plain; charset=utf-8")
+            .send(sql.as_bytes())
+            .map_err(|e| eyre!("{e}"))?;
+        Self::check(resp)
     }
 
     /// 数据流导入（CSV 文件 → `INSERT INTO <table> FORMAT CSVWithNames`）。
     fn insert_csv(&self, table: &str, csv: &std::path::Path) -> Result<()> {
-        let file = std::fs::File::open(csv)?;
+        let mut file = std::fs::File::open(csv)?;
         let len = file.metadata()?.len();
         let sql = urlencode(&format!("INSERT INTO {table} FORMAT CSVWithNames"));
-        let mut req = ureq::post(&format!("{}/?query={sql}", self.url));
-        if self.user != "default" || !self.password.is_empty() {
-            req = req.header("X-ClickHouse-User", &self.user);
-        }
-        if !self.password.is_empty() {
-            req = req.header("X-ClickHouse-Key", &self.password);
-        }
-        let mut file = file;
-        let resp = req
+        let resp = self
+            .request(&format!("{}/?query={sql}", self.url))
             .send(ureq::SendBody::from_reader(&mut file))
             .map_err(|e| eyre!("{e}"))?;
-        let status = resp.status().as_u16();
-        if !(200..300).contains(&status) {
-            let mut resp = resp;
-            let msg = resp.body_mut().read_to_string().unwrap_or_default();
-            eyre::bail!("ClickHouse HTTP {status}: {msg}");
-        }
+        Self::check(resp)?;
         debug!("clickhouse 导入完成：{table}（{len} 字节 CSV）");
         // 输出数据边界：缓存解压目录可能滞后于最新交易日（实测 09-10 命中
-        // 09-06 的旧缓存，包行数相近极易误判为新包）——一眼确认新鲜度
-        let info = self.exec(&format!(
-            "SELECT concat(toString(count()), ' 行，数据截至 ', toString(max(dt))) FROM {table}"
-        ))?;
-        info!("day_file 数据边界: {info}");
+        // 09-06 的旧缓存，包行数相近极易误判为新包）——一眼确认新鲜度。
+        // 仅为诊断信息：查询失败不能让已经成功的导入以失败收场。
+        match self.exec(&format!(
+            "SELECT concat(toString(count()), ' 行，数据截至 ', toString(max(date))) FROM {table}"
+        )) {
+            Ok(info) => info!("day_file 数据边界: {}", info.trim()),
+            Err(e) => warn!("导入已完成，但查询数据边界失败: {e}"),
+        }
         Ok(())
     }
 }
@@ -295,8 +334,9 @@ fn ch_execute(cfg: &ClickHouseConfig, sql: &str) -> Result<()> {
 }
 
 pub fn setup_clickhouse(fq: bool, table: &str) -> Result<()> {
+    let (database_name, _) = database_table(table)?;
     let cfg = ClickHouseConfig::from_env();
-    let create_database = format!("CREATE DATABASE IF NOT EXISTS {}", database_table(table).0);
+    let create_database = format!("CREATE DATABASE IF NOT EXISTS {database_name}");
     ch_execute(&cfg, &create_database)?;
     #[rustfmt::skip]
     let create_table = if fq {
@@ -338,6 +378,7 @@ pub fn setup_clickhouse(fq: bool, table: &str) -> Result<()> {
 }
 
 pub fn insert_clickhouse(output: &impl AsRef<Path>, table: &str, keep: bool) -> Result<()> {
+    database_table(table)?; // 表名会拼进 SQL，先校验
     let cfg = ClickHouseConfig::from_env();
     cfg.insert_csv(table, output.as_ref())?;
     info!("成功插入数据到 clickhouse 数据库（{table}）");
@@ -345,16 +386,20 @@ pub fn insert_clickhouse(output: &impl AsRef<Path>, table: &str, keep: bool) -> 
     Ok(())
 }
 
-/// 需要日线 clickhouse csv 文件
+/// 需要本机 ClickHouse 服务与日线 clickhouse csv 文件（缺任一则跳过）
 #[test]
 fn test_insert_clickhouse() -> Result<()> {
-    // 本地未安装 clickhouse-client 时跳过（该测试依赖本机 ClickHouse 服务）
-    if std::process::Command::new("clickhouse-client")
-        .arg("--version")
-        .output()
-        .is_err()
-    {
-        eprintln!("⚠️  跳过：未安装 clickhouse-client");
+    if std::env::var_os("RUSTDX_SKIP_INTEGRATION_TESTS").is_some() {
+        eprintln!("⚠️  跳过：已设置 RUSTDX_SKIP_INTEGRATION_TESTS");
+        return Ok(());
+    }
+    // 写入走 HTTP：连不上 ClickHouse 服务时跳过，而不是让 cargo test 失败
+    if let Err(e) = ClickHouseConfig::from_env().exec("SELECT 1") {
+        eprintln!("⚠️  跳过：无法连接 ClickHouse（{e}）");
+        return Ok(());
+    }
+    if !Path::new("clickhouse").exists() {
+        eprintln!("⚠️  跳过：当前目录下没有日线 csv 文件 `clickhouse`");
         return Ok(());
     }
     setup_clickhouse(true, "rustdx.tmp")?;
@@ -396,8 +441,9 @@ pub fn previous_csv(p: impl AsRef<Path>, keep_factor: bool) -> Previous {
     Ok(prev)
 }
 
-/// 获取当前最新 factor
+/// 获取当前最新 factor（走 ClickHouse HTTP，与写入共用 `CLICKHOUSE_*` 配置）
 fn clickhouse_factor_csv(table: &str, keep_factor: bool) -> Previous {
+    database_table(table)?; // 表名会拼进 SQL，先校验
     let query = format!(
         "\
 WITH 
@@ -416,21 +462,21 @@ WITH
     code
   )
 SELECT code, t.1 AS date, t.2 AS close, t.3 AS factor FROM df
-INTO OUTFILE 'factor.csv'
-FORMAT CSVWithNames;"
+FORMAT CSVWithNames"
     );
-    let args = ["--query", &query];
-    let output = Command::new("clickhouse-client").args(args).output()?;
-    info!("clickhouse-client --query {query:?}");
-    check_output(output);
+    debug!("clickhouse 查询 factor：{query:?}");
+    let body = ClickHouseConfig::from_env().exec(&query)?;
+    // 落盘后沿用 previous_csv，保持 keep_factor（是否保留 factor.csv）的语义
+    fs::write("factor.csv", body)?;
     previous_csv("factor.csv", keep_factor)
 }
 
 /// TODO: 与数据库有关的，把库名、表名可配置
 pub fn run_mongodb(cmd: &DayCmd) -> Result<()> {
-    cmd.run_csv()?;
     // TODO:排查为什么 date 列无法变成 date 类型 date.date(2006-01-02)
-    let (database_name, table_name) = database_table(&cmd.table);
+    // 先校验表名，避免解析完 day 文件才发现参数不合法
+    let (database_name, table_name) = database_table(&cmd.table)?;
+    cmd.run_csv()?;
     let args = [
         "--db",
         database_name,
@@ -442,16 +488,28 @@ pub fn run_mongodb(cmd: &DayCmd) -> Result<()> {
         "--columnsHaveTypes",
         "--fields=code.string()",
     ];
-    let output = Command::new("mongoimport").args(args).output()?;
-    check_output(output);
+    let output = Command::new("mongoimport")
+        .args(args)
+        .output()
+        .map_err(|e| {
+            eyre!("无法运行 mongoimport（需安装 MongoDB Database Tools 并加入 PATH）: {e}")
+        })?;
+    check_output("mongoimport", output)?;
     keep_csv(&cmd.output, cmd.keep_csv)?;
     Ok(())
 }
 
-fn check_output(output: std::process::Output) {
-    io::stdout().write_all(&output.stdout).unwrap();
-    io::stderr().write_all(&output.stderr).unwrap();
-    assert!(output.status.success());
+/// 转发子进程的输出；子进程失败时返回带退出码的错误。
+fn check_output(program: &str, output: std::process::Output) -> Result<()> {
+    io::stdout().write_all(&output.stdout)?;
+    io::stderr().write_all(&output.stderr)?;
+    if output.status.success() {
+        return Ok(());
+    }
+    match output.status.code() {
+        Some(code) => Err(eyre!("{program} 执行失败，退出码 {code}")),
+        None => Err(eyre!("{program} 被信号终止（无退出码）")),
+    }
 }
 
 fn keep_csv(fname: &impl AsRef<Path>, keep: bool) -> io::Result<()> {
@@ -473,11 +531,12 @@ pub fn read_xlsx(path: &str, col: usize, prefix: &str) -> Option<StockList> {
             range
                 .rows()
                 .skip(1)
-                .map(|r| match &r[col] {
-                    Data::Int(x) => format_(&x.to_string()),
-                    Data::Float(x) => format_(&(*x as i64).to_string()),
-                    Data::String(x) => format_(x),
-                    _ => unreachable!(),
+                // 列越界、空单元格或其他类型（日期、布尔、错误值等）的行直接跳过
+                .filter_map(|r| match r.get(col)? {
+                    Data::Int(x) => Some(format_(&x.to_string())),
+                    Data::Float(x) => Some(format_(&(*x as i64).to_string())),
+                    Data::String(x) => Some(format_(x)),
+                    _ => None,
                 })
                 .collect(),
         )

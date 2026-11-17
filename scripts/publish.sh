@@ -1,58 +1,62 @@
 #!/bin/bash
-# rustdx-complete v0.6.0 发布脚本
+# 发布 rustdx-complete 与 rustdx-cli 到 crates.io。
+#
+# 用法：scripts/publish.sh            # 检查 + 确认后发布
+#       scripts/publish.sh --dry-run  # 只做检查与打包演练，不上传
+#
+# 版本号取自各自的 Cargo.toml；crates.io 上已有同版本的包会被跳过，
+# 所以只升了其中一个包的版本时也可以直接运行。
+# 需要先 `cargo login`。rustdx-cli 依赖 rustdx-complete，必须后发布。
 
-set -e
+set -euo pipefail
+cd "$(dirname "$0")/.."
 
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "    🚀 发布 rustdx-complete v0.6.0 到 crates.io"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
+DRY_RUN=""
+[ "${1:-}" = "--dry-run" ] && DRY_RUN="--dry-run"
 
-# 检查是否已登录
-echo "📋 检查 crates.io 登录状态..."
-if cargo search rustdx-complete >/dev/null 2>&1; then
-    echo "   ✅ 已登录 crates.io"
-else
-    echo "   ⚠️  未登录或网络问题"
-    echo ""
-    echo "请先登录："
-    echo "  1. 访问 https://crates.io/settings"
-    echo "  2. 关联你的 GitHub 账号"
-    echo "  3. 或运行: cargo login <your-api-token>"
-    echo ""
+version_of() {
+    cargo metadata --no-deps --format-version 1 |
+        python3 -c "import json,sys; print(next(p['version'] for p in json.load(sys.stdin)['packages'] if p['name']=='$1'))"
+}
+
+# crates.io 上是否已有该版本
+published() {
+    cargo search "$1" --limit 1 2>/dev/null | grep -q "^$1 = \"$2\""
+}
+
+if [ -n "$(git status --porcelain)" ]; then
+    echo "❌ 工作区有未提交的改动，请先提交" >&2
     exit 1
 fi
 
-echo ""
-echo "📦 发布信息："
-echo "   - 包名: rustdx-complete"
-echo "   - 版本: 0.6.0"
-echo "   - 大小: 58KB"
-echo ""
+echo "📋 发布前检查（格式 / clippy / 离线测试）..."
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+RUSTDX_SKIP_INTEGRATION_TESTS=1 cargo test --workspace --quiet
 
-# 确认发布
-read -p "确认发布？(yes/no): " confirm
-if [ "$confirm" != "yes" ]; then
-    echo "❌ 发布已取消"
-    exit 1
+TODO=()
+for crate in rustdx-complete rustdx-cli; do
+    v=$(version_of "$crate")
+    if published "$crate" "$v"; then
+        echo "⏭️  $crate $v 已在 crates.io，跳过"
+    else
+        echo "📦 待发布：$crate $v"
+        TODO+=("$crate")
+    fi
+done
+
+if [ ${#TODO[@]} -eq 0 ]; then
+    echo "没有需要发布的包（如需发布请先升版本号）"
+    exit 0
 fi
 
-echo ""
-echo "📤 开始发布..."
-echo ""
+if [ -z "$DRY_RUN" ]; then
+    read -r -p "确认发布以上包？发布后无法撤回 (yes/no): " confirm
+    [ "$confirm" = "yes" ] || { echo "❌ 已取消"; exit 1; }
+fi
 
-# 发布（允许未提交的文件）
-cargo publish --allow-dirty
+for crate in "${TODO[@]}"; do
+    cargo publish -p "$crate" $DRY_RUN
+done
 
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "    ✅ 发布完成！"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
-echo "🔗 包地址: https://crates.io/crates/rustdx-complete"
-echo ""
-echo "📝 后续步骤："
-echo "   1. 访问上面的链接验证发布"
-echo "   2. 创建 GitHub Release (tag: v0.6.0)"
-echo "   3. 更新 README.md 中的徽章（如果需要）"
-echo ""
+echo "✅ 完成。后续：打标签 v$(version_of rustdx-complete) 并推送"

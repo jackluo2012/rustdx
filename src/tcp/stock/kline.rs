@@ -132,84 +132,62 @@ impl<'a> Tdx for Kline<'a> {
         &self.send
     }
 
-    #[rustfmt::skip]
+    /// 旧入口（不可失败）：等价于忽略 [`Tdx::try_parse`] 的错误。
+    ///
+    /// 畸形/截断的响应不会 panic，也不会留下部分数据：此时 `data` 为空、
+    /// `response` 仍保存原始字节。需要区分「真的没有数据」与「响应异常」时，
+    /// 请使用 [`Tdx::try_parse`] 或 [`Tdx::recv_parsed`]。
     fn parse(&mut self, v: Vec<u8>) {
-        use crate::{
-            tcp::helper::{datetime, vol_amount},
-            bytes_helper::u16_from_le_bytes
-        };
+        let _ = self.try_parse(v);
+    }
 
-        // ① 服务器可能返回少于请求数（历史尽头 / 长期停牌等）；② 响应体可能被
-        // 截断（代理环境实测出现过只有 2 字节包头的响应）。两种情况都必须只解析
-        // 实际可读的记录并截断 data——否则 debug 构建在此 panic（越界切片），
-        // release 下读到垃圾数据，违背本 crate「解析异常时返回空数据而非垃圾数据」
-        // 的约定。价格字段是 varint（1~5 字节不定长），无法按固定步长预算，
-        // 只能逐字段安全读取。
-        if v.len() < 2 {
-            self.data.clear();
-            self.response = v;
-            return;
-        }
-        let count = u16_from_le_bytes(&v, 0) as usize;
-        self.data.truncate(count.min(self.count as usize));
+    /// 严格解析：畸形响应返回 [`std::io::ErrorKind::InvalidData`]，
+    /// 由连接层按配置重连/换服务器重试。
+    ///
+    /// - 响应体不足 2 字节（连记录数都没有）→ 错误；
+    /// - 实际解析出的记录数 < min(响应头声明数, 请求数)（记录被截断，或声明
+    ///   有数据却没有数据体，实盘出现过只有 `20 03` 两字节的响应）→ 错误；
+    /// - 声明数为 0（停牌/无历史/翻页到尽头，体为 `00 00`）→ 成功且结果为空。
+    ///
+    /// 出错时 `data` 被清空（不返回部分数据），`response` 始终保存原始字节。
+    #[rustfmt::skip]
+    fn try_parse(&mut self, v: Vec<u8>) -> std::io::Result<()> {
+        use crate::tcp::helper::vol_amount;
 
-        // 与 helper::price 同逻辑的越界安全版：响应截断时返回 None。
-        fn price_checked(arr: &[u8], pos: &mut usize) -> Option<i32> {
-            let mut shl = 6;
-            let mut bit = *arr.get(*pos)? as i32;
-            let mut res = bit & 0x3f;
-            let sign = (bit & 0x40) == 0;
+        self.data.clear();
+        self.response = v;
+        let v = &self.response;
+        let declared = declared_count(v, Self::TAG)?;
+        // 服务器可能返回少于请求数（历史尽头 / 长期停牌等），以声明数为准；
+        // 声明数多于请求数时只取请求的根数。
+        let expected = declared.min(self.count as usize);
 
-            while (bit & 0x80) != 0 {
-                *pos += 1;
-                bit = *arr.get(*pos)? as i32;
-                res += (bit & 0x7f) << shl;
-                shl += 7;
-            }
-            *pos += 1;
-
-            if sign { Some(res) } else { Some(-res) }
-        }
-
-        let (mut pos, mut base, mut parsed) = (2usize, 0i32, 0usize);
-        for item in self.data.iter_mut() {
-            if pos + 4 > v.len() {
-                break; // dt
-            }
-            let dt = datetime(&v[pos..pos + 4], self.category);
-            pos += 4;
-            let (Some(open), Some(close), Some(high), Some(low)) = (
-                price_checked(&v, &mut pos),
-                price_checked(&v, &mut pos),
-                price_checked(&v, &mut pos),
-                price_checked(&v, &mut pos),
-            ) else {
+        // 价格字段是 varint（1~5 字节不定长），无法按固定步长预算，只能逐字段安全读取。
+        let (mut pos, mut base) = (2usize, 0i64);
+        let mut data = Vec::with_capacity(expected);
+        while data.len() < expected {
+            let Some(bar) = bar_head(v, &mut pos, self.category) else {
                 break;
             };
-            if pos + 8 > v.len() {
-                break; // vol + amount 各 4 字节
-            }
-            let vol_raw = u32::from_le_bytes(v[pos..pos + 4].try_into().expect("4 bytes"));
-            pos += 4;
-            let amt_raw = u32::from_le_bytes(v[pos..pos + 4].try_into().expect("4 bytes"));
-            pos += 4;
-
-            *item = KlineData { dt, code: self.code,
-                                open:   { base += open; base as f64 / 1000. },
-                                close:  real_price(close, base),
-                                high:   real_price(high, base),
-                                low:    real_price(low, base),
-                                vol:    vol_amount(vol_raw as i32),
-                                amount: vol_amount(amt_raw as i32) };
-
+            let [open, close, high, low] = bar.prices;
+            base += open;
+            data.push(KlineData { dt: bar.dt, code: self.code,
+                                  open:   base as f64 / 1000.,
+                                  close:  real_price(close, base),
+                                  high:   real_price(high, base),
+                                  low:    real_price(low, base),
+                                  vol:    vol_amount(bar.vol as i32),
+                                  amount: vol_amount(bar.amount as i32) });
             base += close;
-            parsed += 1;
         }
-        self.data.truncate(parsed);
+        if data.len() < expected {
+            return Err(incomplete(Self::TAG, declared, self.count, data.len()));
+        }
         // 升序契约：实测服务端返回顺序与早前相反（2026-09 起，疑与当日分时
         // 协议变更同期调整），解析层统一排序，消费方不再各自兜底。
-        self.data.sort_by_key(|b| b.dt);
-        self.response = v;
+        data.sort_by_key(|b| b.dt);
+        self.data = data;
+        Ok(())
     }
 
     fn result(&self) -> &Self::Item {
@@ -258,9 +236,71 @@ pub struct KlineData<'d> {
 //     }
 // }
 
+/// 价格以 i64 累加：畸形数据也不会让差值累加溢出（合法数据下结果与 i32 相同）。
 #[inline]
-fn real_price(p: i32, base: i32) -> f64 {
+fn real_price(p: i64, base: i64) -> f64 {
     (p + base) as f64 / 1000.
+}
+
+/// 股票 K 线与指数 K 线每条记录的公共前缀：
+/// datetime(4) + 开/收/高/低(varint 差值) + vol(u32) + amount(u32)。
+pub(super) struct BarHead {
+    pub dt: DateTime,
+    /// 开/收/高/低 的原始差值（尚未累加、未除以 1000）。
+    pub prices: [i64; 4],
+    pub vol: u32,
+    pub amount: u32,
+}
+
+/// 读取响应头的记录数（前 2 字节）；不足 2 字节视为畸形响应。
+pub(super) fn declared_count(v: &[u8], tag: &str) -> std::io::Result<usize> {
+    match v {
+        [lo, hi, ..] => Ok(u16::from_le_bytes([*lo, *hi]) as usize),
+        _ => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("{tag}响应体过短：{} 字节，缺少记录数", v.len()),
+        )),
+    }
+}
+
+/// 记录数不足（截断，或声明有数据却无数据体）时的错误。
+pub(super) fn incomplete(
+    tag: &str,
+    declared: usize,
+    requested: u16,
+    parsed: usize,
+) -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        format!("{tag}响应不完整：声明 {declared} 根，请求 {requested} 根，实际解析 {parsed} 根"),
+    )
+}
+
+/// 越界安全地读取 4 字节小端 u32；数据不足返回 None。
+pub(super) fn read_u32(v: &[u8], pos: &mut usize) -> Option<u32> {
+    let bytes = v.get(*pos..pos.checked_add(4)?)?;
+    *pos += 4;
+    Some(u32::from_le_bytes(bytes.try_into().ok()?))
+}
+
+/// 逐字段安全读取一条记录的公共前缀；截断或 varint 溢出时返回 None。
+pub(super) fn bar_head(v: &[u8], pos: &mut usize, category: u16) -> Option<BarHead> {
+    use crate::tcp::helper::{datetime, price_checked};
+
+    let dt = datetime(v.get(*pos..pos.checked_add(4)?)?, category);
+    *pos += 4;
+    let mut prices = [0i64; 4];
+    for p in &mut prices {
+        *p = i64::from(price_checked(v, pos)?);
+    }
+    let vol = read_u32(v, pos)?;
+    let amount = read_u32(v, pos)?;
+    Some(BarHead {
+        dt,
+        prices,
+        vol,
+        amount,
+    })
 }
 
 #[test]
@@ -338,4 +378,131 @@ fn parse() {
     ];
     day.parse(arr);
     compare!(res, day.data.as_slice());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::ErrorKind;
+
+    /// 一条完整合法的日线记录（2021-09-23，#sz000001#）。
+    const BAR: [u8; 21] = [
+        0xeb, 0x64, 0x34, 0x01, 0xb4, 0x9a, 0x02, 0xe4, 0x06, 0x9c, 0x03, 0xc2, 0x07, 0xe8, 0x6f,
+        0xa8, 0x49, 0x59, 0xf7, 0x12, 0x4f,
+    ];
+
+    fn body(count: u16, bars: &[&[u8]]) -> Vec<u8> {
+        let mut v = count.to_le_bytes().to_vec();
+        bars.iter().for_each(|b| v.extend_from_slice(b));
+        v
+    }
+
+    /// 实盘出现过的异常响应：声明 800 根却没有任何记录，不能当成「历史尽头」。
+    #[test]
+    fn declared_without_body_is_invalid() {
+        let mut day = Kline::new(0, "000001", 9, 0, 5);
+        let err = day.try_parse(vec![0x20, 0x03]).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+        let msg = err.to_string();
+        assert!(msg.contains("800") && msg.contains("实际解析 0"), "{msg}");
+        assert!(day.data.is_empty());
+        assert_eq!(day.response, [0x20, 0x03]);
+
+        // 旧入口不 panic，同样不留下数据。
+        day.parse(vec![0x20, 0x03]);
+        assert!(day.data.is_empty());
+        assert_eq!(day.response, [0x20, 0x03]);
+    }
+
+    /// 声明 0 根（停牌/无历史）是合法的「真空」。
+    #[test]
+    fn declared_zero_is_ok_and_empty() {
+        let mut day = Kline::new(0, "000001", 9, 0, 5);
+        day.try_parse(vec![0x00, 0x00]).unwrap();
+        assert!(day.data.is_empty());
+        assert_eq!(day.response, [0x00, 0x00]);
+    }
+
+    #[test]
+    fn too_short_body_is_invalid() {
+        for v in [vec![], vec![0x01]] {
+            let mut day = Kline::new(0, "000001", 9, 0, 5);
+            assert_eq!(
+                day.try_parse(v.clone()).unwrap_err().kind(),
+                ErrorKind::InvalidData
+            );
+            assert!(day.data.is_empty());
+            assert_eq!(day.response, v);
+        }
+    }
+
+    /// 在任意位置截断都返回错误且不留下部分数据。
+    #[test]
+    fn truncated_record_is_invalid() {
+        let full = body(2, &[&BAR, &BAR]);
+        for len in 2..full.len() {
+            let mut day = Kline::new(0, "000001", 9, 0, 2);
+            let err = day.try_parse(full[..len].to_vec()).unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::InvalidData, "len={len}");
+            assert!(day.data.is_empty(), "len={len}");
+            assert_eq!(day.response.len(), len);
+            day.parse(full[..len].to_vec());
+            assert!(day.data.is_empty(), "len={len}");
+        }
+    }
+
+    /// 超长 varint（连续的续位字节）不能 panic（debug 下曾移位溢出）。
+    #[test]
+    fn overlong_varint_does_not_panic() {
+        for filler in [0x80u8, 0xff] {
+            let mut v = body(1, &[&BAR[..4]]);
+            v.extend_from_slice(&[filler; 64]);
+            let mut day = Kline::new(0, "000001", 9, 0, 1);
+            assert_eq!(
+                day.try_parse(v.clone()).unwrap_err().kind(),
+                ErrorKind::InvalidData
+            );
+            day.parse(v);
+            assert!(day.data.is_empty());
+        }
+    }
+
+    #[test]
+    fn single_valid_record() {
+        let mut day = Kline::new(0, "000001", 9, 0, 1);
+        day.try_parse(body(1, &[&BAR])).unwrap();
+        assert_eq!(day.data.len(), 1);
+        let bar = &day.data[0];
+        assert_eq!(
+            bar.dt,
+            DateTime {
+                year: 2021,
+                month: 9,
+                day: 23,
+                hour: 15,
+                minute: 0
+            }
+        );
+        assert_eq!(bar.code, "000001");
+        assert_eq!(
+            (bar.open, bar.close, bar.high, bar.low),
+            (18.1, 17.68, 18.32, 17.65)
+        );
+        assert_eq!((bar.vol, bar.amount), (1379837.0, 2465683712.0));
+    }
+
+    /// 服务器返回少于请求数（历史尽头）是合法的；多于请求数时只取请求的根数。
+    #[test]
+    fn fewer_or_more_than_requested() {
+        let mut day = Kline::new(0, "000001", 9, 0, 5);
+        day.try_parse(body(1, &[&BAR])).unwrap();
+        assert_eq!(day.data.len(), 1);
+        // 同一对象复用：上一次结果较少不影响下一次解析的根数。
+        day.try_parse(body(2, &[&BAR, &BAR])).unwrap();
+        assert_eq!(day.data.len(), 2);
+
+        let mut day = Kline::new(0, "000001", 9, 0, 1);
+        day.try_parse(body(2, &[&BAR, &BAR])).unwrap();
+        assert_eq!(day.data.len(), 1);
+    }
 }

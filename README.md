@@ -3,7 +3,6 @@
 [<img alt="github" src="https://img.shields.io/github/license/jackluo2012/rustdx?color=blue" height="20">](https://github.com/jackluo2012/rustdx)
 [<img alt="github" src="https://img.shields.io/github/issues/jackluo2012/rustdx?color=db2043" height="20">](https://github.com/jackluo2012/rustdx/issues)
 [<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-complete?style=flat&color=fc8d62&logo=rust&label=rustdx-complete" height="20">](https://crates.io/crates/rustdx-complete)
-[<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-complete/1.8.0?style=flat&color=green&logo=rust&logoColor=white&label=v1.8.0" height="20">](https://crates.io/crates/rustdx-complete)
 [<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-rustdx-66c2a5?style=flat&labelColor=555555&logoColor=white&logo=data:image/svg+xml;base64,PHN2ZyByb2xlPSJpbWciIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDUxMiA1MTIiPjxwYXRoIGZpbGw9IiNmNWY1ZjUiIGQ9Ik00ODguNiAyNTAuMkwzOTIgMjE0VjEwNS41YzAtMTUtOS4zLTI4LjQtMjMuNC0zMy43bC0xMDAtMzcuNWMtOC4xLTMuMS0xNy4xLTMuMS0yNS4zIDBsLTEwMCAzNy41Yy0xNC4xIDUuMy0yMy40IDE4LjctMjMuNCAzMy43VjIxNGwtOTYuNiAzNi4yQzkuMyAyNTUuNSAwIDI2OC45IDAgMjgzLjlWMzk0YzAgMTMuNiA3LjcgMjYuMSAxOS45IDMyLjJsMTAwIDUwYzEwLjEgNS4xIDIyLjEgNS4xIDMyLjIgMGwxMDMuOS01MiAxMDMuOSA1MmMxMC4xIDUuMSAyMi4xIDUuMSAzMi4yIDBsMTAwLTUwYzEyLjItNi4xIDE5LjktMTguNiAxOS45LTMyLjJWMjgzLjljMC0xNS05LjMtMjguNC0yMy40LTMzLjd6TTM1OCAyMTQuOGwtODUgMzEuOXYtNjguMmw4NS0zN3Y3My4zek0xNTQgMTA0LjFsMTAyLTM4LjIgMTAyIDM4LjJ2LjZsLTEwMiA0MS40LTEwMi00MS40di0uNnptODQgMjkxLjFsLTg1IDQyLjV2LTc5LjFsODUtMzguOHY3NS40em0wLTExMmwtMTAyIDQxLjQtMTAyLTQxLjR2LS42bDEwMi0zOC4yIDEwMiAzOC4ydi42em0yNDAgMTEybC04NSA0Mi41di03OS4xbDg1LTM4Ljh2NzUuNHptMC0xMTJsLTEwMiA0MS40LTEwMi00MS40di0uNmwxMDItMzguMiAxMDIgMzguMnYuNnoiPjwvcGF0aD48L3N2Zz4K" height="20">](https://docs.rs/rustdx-complete)
 [<img alt="crates.io" src="https://img.shields.io/crates/v/rustdx-cli?style=flat&color=fc8d62&logo=rust&label=rustdx-cli" height="20">](https://crates.io/crates/rustdx-cli)
 
@@ -20,13 +19,13 @@
 - **本地 day 文件并发解析**：rustdx-cli 多线程并行解析（线程数=逻辑核心数），并支持带字母的特殊品种代码（如深市板块指数 `sz200b07`）
 - **技术指标**：SMA/EMA/MACD/RSI/布林带/KDJ
 - **辅助能力**：交易日历、智能缓存、连接池、Builder 模式 API、数据验证
-- **229 个测试**（含真实抓包字节的回归测试），clippy 零警告
+- **回归测试**：真实抓包字节与 pytdx 对照 fixtures 的离线回归 + 实盘集成测试，clippy 零警告
 
 ## 📦 安装
 
 ```toml
 [dependencies]
-rustdx-complete = "1.8.0"
+rustdx-complete = "1.12"
 ```
 
 或 `cargo add rustdx-complete`。
@@ -129,7 +128,7 @@ let mut tcp = Tcp::with_config(&cfg)?;
 tcp.heartbeat()?;
 tcp.reconnect()?;
 
-// 断线自动重连：0 = 关闭（默认，保持旧行为）；1~2 = 请求失败时自动重连并重发
+// 总尝试次数（含首次）：0/1 = 不重试；2 = 请求失败后重连重试一次
 // 行情请求是幂等的，长时运行的策略程序建议开启，避免偶发断线后整条链路失败
 let cfg = TcpConfig {
     timeout: Duration::from_secs(5),
@@ -138,6 +137,18 @@ let cfg = TcpConfig {
 };
 let mut tcp = Tcp::with_config(&cfg)?;
 ```
+
+需要限制整轮采集耗时时，使用绝对截止时间，而不是只设置单次 I/O 的 `timeout`：
+
+```rust,ignore
+let deadline = std::time::Instant::now() + Duration::from_secs(30);
+let mut client = Client::with_servers_until(&cfg, &rustdx_complete::tcp::ip::STOCK_IP, deadline)?;
+let quotes = client.quotes(&[(0, "000001")])?;
+// 下一轮开始前刷新预算；包含失败重连和握手，不重新赠送 30 秒。
+client.tcp.set_deadline(Some(std::time::Instant::now() + Duration::from_secs(30)));
+```
+
+同一 deadline 覆盖库内建连、握手、收发完整响应、重试和等待。中断响应会关闭连接，下轮刷新预算后自动重建。`set_deadline(None)` 恢复仅单次 I/O 超时的模式；旧构造方法默认没有整轮截止时间。
 
 > 所有 `Client` 方法（`quotes`/`k`/`k_batch`/`k_adjusted`/`minute`/`xdxr` 等）出错时，
 > 错误信息都会附带**接口名 + 市场/代码 + 字段**上下文（如
@@ -231,7 +242,7 @@ $ rustdx east -p clickhouse -o clickhouse -t rustdx.factor
 ## 🧪 测试
 
 ```console
-$ cargo test --workspace   # 235 个测试（含实盘网络验证）
+$ cargo test --workspace   # 含实盘网络验证；设置 RUSTDX_SKIP_INTEGRATION_TESTS=1 可跳过联网用例
 $ cargo clippy --workspace --all-targets   # 零警告
 ```
 

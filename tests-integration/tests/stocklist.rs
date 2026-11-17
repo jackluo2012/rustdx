@@ -22,9 +22,22 @@ static SH8: LazyLock<Vec<String>> = LazyLock::new(|| get!(sh, "8", "1000"));
 static SH1: LazyLock<Vec<String>> = LazyLock::new(|| get!(sh, "1", "2500"));
 static SZ: LazyLock<Vec<String>> = LazyLock::new(|| get!(sz));
 
+/// 设置了 `RUSTDX_SKIP_INTEGRATION_TESTS` 时跳过联网用例
+/// （CI 机器访问交易所官网会被重置连接）。
+fn skip_integration() -> bool {
+    let skip = std::env::var_os("RUSTDX_SKIP_INTEGRATION_TESTS").is_some();
+    if skip {
+        println!("⚠️  跳过集成测试 (RUSTDX_SKIP_INTEGRATION_TESTS 已设置)");
+    }
+    skip
+}
+
 /// 打印当前抓取结果（证券名单随上市/退市每日变动，无法快照对比，仅供人工查看）。
 #[test]
 fn head() {
+    if skip_integration() {
+        return;
+    }
     let (sh8, sh1, sz) = (&*SH8, &*SH1, &*SZ);
     println!(
         "sh8: {}\n{:?}\n{:?}",
@@ -50,6 +63,9 @@ fn head() {
 /// 并对名单数量与代码格式做合理性断言（不对比具体名单）。
 #[test]
 fn stocklist() {
+    if skip_integration() {
+        return;
+    }
     let (sh8, sh1, sz) = (&*SH8, &*SH1, &*SZ);
     let (lsh8, lsh1, lsz) = (sh8.len(), sh1.len(), sz.len());
 

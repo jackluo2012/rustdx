@@ -143,20 +143,7 @@ pub struct MinuteTimeData {
 }
 
 /// [`price`] 的越界安全版本：字节不足时返回 `None`。
-pub(crate) fn price_checked(arr: &[u8], pos: &mut usize) -> Option<i32> {
-    let mut shl = 6;
-    let mut bit = *arr.get(*pos)? as i32;
-    let mut res = bit & 0x3f;
-    let sign = (bit & 0x40) == 0;
-    while (bit & 0x80) != 0 {
-        *pos += 1;
-        bit = *arr.get(*pos)? as i32;
-        res += (bit & 0x7f) << shl;
-        shl += 7;
-    }
-    *pos += 1;
-    Some(if sign { res } else { -res })
-}
+pub(crate) use crate::tcp::helper::price_checked;
 
 /// 定位 2026 新协议响应中的分时数据块并解码。
 ///
@@ -206,7 +193,7 @@ fn decode_points(v: &[u8], pos: usize, num: usize) -> Option<(Vec<MinuteTimeData
         let price_raw = price_checked(v, &mut pos)?;
         let _reversed1 = price_checked(v, &mut pos)?;
         let vol = price_checked(v, &mut pos)?;
-        last_price += price_raw;
+        last_price = last_price.checked_add(price_raw)?;
         out.push(MinuteTimeData {
             price: last_price as f64 / 100.0,
             vol,
@@ -218,6 +205,53 @@ fn decode_points(v: &[u8], pos: usize, num: usize) -> Option<(Vec<MinuteTimeData
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_minute_and_history_match_pytdx_packets() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("fixtures/pytdx_quotes.json")).unwrap();
+        for case in fixture["minutes"].as_array().unwrap() {
+            let market = case["market"].as_u64().unwrap() as u16;
+            let code = case["code"].as_str().unwrap();
+            for name in ["minute", "history_minute"] {
+                let sample = &case[name];
+                let hex = sample["body_hex"].as_str().unwrap();
+                let body: Vec<u8> = (0..hex.len())
+                    .step_by(2)
+                    .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+                    .collect();
+                let (request, data) = if name == "minute" {
+                    let mut parser = MinuteTime::new(market, code);
+                    parser.parse(body);
+                    (parser.send().to_vec(), parser.result().to_vec())
+                } else {
+                    let mut parser = super::super::HistoryMinuteTime::new(market, code, 20261117);
+                    parser.parse(body);
+                    (parser.send().to_vec(), parser.result().to_vec())
+                };
+                let request = request
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<String>();
+                assert_eq!(request, sample["request_hex"].as_str().unwrap());
+                let expected = sample["points"].as_array().unwrap();
+                assert_eq!(data.len(), expected.len());
+                for (point, want) in data.iter().zip(expected) {
+                    assert!((point.price - want["price"].as_f64().unwrap()).abs() < 1e-10);
+                    assert_eq!(i64::from(point.vol), want["vol"].as_i64().unwrap());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn malformed_varints_and_accumulated_prices_do_not_overflow() {
+        assert!(price_checked(&[128; 10], &mut 0).is_none());
+        assert!(price_checked(&[255; 5], &mut 0).is_none());
+        // Two individually valid i32 values whose cumulative sum overflows.
+        let bytes = [191, 255, 255, 255, 15, 0, 0, 1, 0, 0];
+        assert!(decode_points(&bytes, 0, 2).is_none());
+    }
 
     #[test]
     fn test_minute_time_new() {

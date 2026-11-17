@@ -4,7 +4,8 @@
 //! 1. 从默认地址 <https://data.tdx.com.cn/vipdoc/hsjday.zip> 下载完整包；
 //! 2. 下载失败时自动重试，仍失败则交互询问用户提供备选下载地址（URL）或
 //!    本地 zip 文件路径；
-//! 3. 断点续传：中断后重跑从已下载位置继续（服务器支持 `Accept-Ranges`）；
+//! 3. 断点续传：数据先写入 `hsjday.zip.part`，中断后重跑且服务器文件未变化时
+//!    从已下载位置继续（服务器支持 `Accept-Ranges`），完成后原子改名为 zip；
 //! 4. 缓存跳过：按 ETag/Last-Modified/大小比对服务器文件，未变化则跳过
 //!    下载与解压，二次运行接近秒开；
 //! 5. 解压后收集 `sh/lday`、`sz/lday`、`bj/lday` 等目录，返回给解析流程。
@@ -61,7 +62,7 @@ pub fn prepare_hsjday_dirs_from(url: &str) -> Result<Vec<PathBuf>> {
             zip_path.display()
         );
     } else {
-        download_with_fallback(url, &zip_path)?;
+        download_with_fallback(url, &zip_path, head.as_ref())?;
         let zip_len = std::fs::metadata(&zip_path)?.len();
         meta = Meta {
             url: url.to_string(),
@@ -114,10 +115,14 @@ pub fn prepare_hsjday_dirs_from_zip(zip_path: &Path) -> Result<Vec<PathBuf>> {
 }
 
 /// 下载（首次失败自动重试 2 次；仍失败 → 交互提供备选 URL / 本地 zip 路径）。
-fn download_with_fallback(initial_url: &str, zip_path: &Path) -> Result<()> {
+fn download_with_fallback(
+    initial_url: &str,
+    zip_path: &Path,
+    head: Option<&HeadInfo>,
+) -> Result<()> {
     let mut last_err: Option<eyre::Report> = None;
     for attempt in 1..=3 {
-        match download(initial_url, zip_path) {
+        match download(initial_url, zip_path, head) {
             Ok(()) => return Ok(()),
             Err(e) => {
                 log::warn!("下载失败（第 {attempt}/3 次）: {e:#}");
@@ -138,7 +143,8 @@ fn download_with_fallback(initial_url: &str, zip_path: &Path) -> Result<()> {
 
     let fallback = prompt_fallback()?;
     if fallback.starts_with("http://") || fallback.starts_with("https://") {
-        download(&fallback, zip_path).map_err(|e2| eyre!("备选地址下载失败: {e2:#}"))?;
+        // 备选地址没有 HEAD 信息 → 身份不可比对 → 一律从头下载
+        download(&fallback, zip_path, None).map_err(|e2| eyre!("备选地址下载失败: {e2:#}"))?;
     } else {
         let p = PathBuf::from(&fallback);
         if !p.is_file() {
@@ -150,13 +156,105 @@ fn download_with_fallback(initial_url: &str, zip_path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// 下载 url 到 dest 文件，支持断点续传（服务器返回 206 时从已下载位置追加）。
-fn download(url: &str, dest: &Path) -> Result<()> {
-    let done = if dest.exists() {
-        std::fs::metadata(dest)?.len()
+/// 半截下载（`.part`）的来源身份，写入 sidecar，用于判断能否断点续传。
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+struct SourceId {
+    url: String,
+    etag: Option<String>,
+    last_modified: Option<String>,
+    size: Option<u64>,
+}
+
+impl SourceId {
+    fn new(url: &str, head: Option<&HeadInfo>) -> Self {
+        Self {
+            url: url.to_string(),
+            etag: head.and_then(|h| h.etag.clone()),
+            last_modified: head.and_then(|h| h.last_modified.clone()),
+            size: head.and_then(|h| h.size),
+        }
+    }
+}
+
+/// 计算续传起点：返回 0 表示必须丢弃 `.part` 从头下载。
+///
+/// 只有 sidecar 记录的身份与本次完全一致、且身份里至少有 etag 或
+/// last-modified（否则无法证明服务器文件没变）时才续传；`.part` 比服务器
+/// 文件还大说明已损坏，同样从头下载。
+fn resume_offset(saved: Option<&SourceId>, current: &SourceId, part_len: u64) -> u64 {
+    let same = saved == Some(current);
+    let identifiable = current.etag.is_some() || current.last_modified.is_some();
+    let oversized = current.size.is_some_and(|s| part_len > s);
+    if same && identifiable && !oversized {
+        part_len
     } else {
         0
+    }
+}
+
+/// 在文件名后追加后缀（`hsjday.zip` → `hsjday.zip.part`）。
+fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut s = path.as_os_str().to_os_string();
+    s.push(suffix);
+    PathBuf::from(s)
+}
+
+/// 下载 url 到 dest。
+///
+/// 数据先写入 `<dest>.part`，成功后原子 `rename` 为 dest，因此 dest 要么是
+/// 旧的完整文件，要么是新的完整文件；断点续传只针对 `.part`，且要求
+/// `<dest>.part.id` 记录的来源身份与本次一致（见 [`resume_offset`]）。
+fn download(url: &str, dest: &Path, head: Option<&HeadInfo>) -> Result<()> {
+    let part = with_suffix(dest, ".part");
+    let id_path = with_suffix(dest, ".part.id");
+    let current = SourceId::new(url, head);
+
+    let part_len = std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
+    let saved: Option<SourceId> = std::fs::read_to_string(&id_path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok());
+    let done = resume_offset(saved.as_ref(), &current, part_len);
+    if done == 0 && part_len > 0 {
+        log::info!("已有的半截下载与服务器文件不一致（或无法比对），从头下载");
+        std::fs::remove_file(&part)?;
+    }
+    std::fs::write(&id_path, serde_json::to_string(&current)?)?;
+
+    let total = if done > 0 && current.size == Some(done) {
+        // 上次已下完但没来得及改名：无需再请求（否则 Range 越界必得 416）
+        done
+    } else {
+        match fetch(url, &part, done)? {
+            Some(total) => total,
+            None => {
+                log::warn!("服务器返回 416（续传位置无效），删除半截文件从头下载");
+                std::fs::remove_file(&part)?;
+                fetch(url, &part, 0)?.ok_or_else(|| eyre!("HTTP 416"))?
+            }
+        }
     };
+
+    if let Some(expect) = current.size
+        && total != expect
+    {
+        // 保留 .part：字节数不足时下次可续传，超出时下次会被判定为损坏而重下
+        bail!("下载不完整: 期望 {expect} 字节，实际 {total} 字节");
+    }
+
+    std::fs::rename(&part, dest)?;
+    let _ = std::fs::remove_file(&id_path);
+    log::info!(
+        "下载完成: {} ({:.1} MiB)",
+        dest.display(),
+        total as f64 / (1024.0 * 1024.0)
+    );
+    Ok(())
+}
+
+/// 把 url 的内容写入 part（`done > 0` 时带 Range 续传），返回文件总字节数。
+///
+/// 返回 `Ok(None)` 表示服务器对续传请求回了 416，调用方应丢弃 part 重下。
+fn fetch(url: &str, part: &Path, done: u64) -> Result<Option<u64>> {
     if done > 0 {
         log::info!(
             "正在下载 {url} ...（断点续传，已下载 {:.1} MiB）",
@@ -170,23 +268,30 @@ fn download(url: &str, dest: &Path) -> Result<()> {
     if done > 0 {
         req = req.header("Range", &format!("bytes={done}-"));
     }
-    let mut resp = req.call().map_err(|e| eyre!("{e}"))?;
+    let mut resp = match req.call() {
+        Ok(resp) => resp,
+        Err(ureq::Error::StatusCode(416)) if done > 0 => return Ok(None),
+        Err(e) => return Err(eyre!("{e}")),
+    };
 
     let mut start = 0u64;
     match resp.status().as_u16() {
         200 if done > 0 => {
-            // 服务器不支持 Range（或文件已变）：从头下载
+            // 服务器不支持 Range：从头下载
             log::warn!("服务器返回 200（不支持断点续传），从头下载");
         }
-        206 => start = done,
+        206 if done > 0 => start = done,
         200 => {}
-        s => bail!("HTTP {s}"),
+        416 if done > 0 => return Ok(None),
+        s => {
+            bail!("HTTP {s}");
+        }
     }
 
     let mut out = if start > 0 {
-        std::fs::OpenOptions::new().append(true).open(dest)?
+        std::fs::OpenOptions::new().append(true).open(part)?
     } else {
-        std::fs::File::create(dest)?
+        std::fs::File::create(part)?
     };
 
     let mut reader = resp.body_mut().as_reader();
@@ -207,12 +312,7 @@ fn download(url: &str, dest: &Path) -> Result<()> {
         }
     }
     out.flush()?;
-    log::info!(
-        "下载完成: {} ({:.1} MiB)",
-        dest.display(),
-        total as f64 / (1024.0 * 1024.0)
-    );
-    Ok(())
+    Ok(Some(total))
 }
 
 /// 下载失败后的交互：询问用户提供备选 URL 或本地 zip 文件路径。
@@ -417,5 +517,55 @@ mod tests {
         // 不同 url → 不命中
         assert!(!zip_cached("https://y/hsjday.zip", zip, &m2, Some(&h)));
         let _ = std::fs::remove_dir_all("/tmp/rustdx_hsjday_test");
+    }
+
+    fn sid(etag: Option<&str>, lm: Option<&str>, size: Option<u64>) -> SourceId {
+        SourceId {
+            url: "https://x/hsjday.zip".into(),
+            etag: etag.map(Into::into),
+            last_modified: lm.map(Into::into),
+            size,
+        }
+    }
+
+    #[test]
+    fn resume_offset_logic() {
+        let cur = sid(Some("\"abc\""), None, Some(100));
+        // 身份一致 → 续传
+        assert_eq!(resume_offset(Some(&cur), &cur, 40), 40);
+        // 已下完未改名 → 仍返回完整长度
+        assert_eq!(resume_offset(Some(&cur), &cur, 100), 100);
+        // 无 sidecar → 从头
+        assert_eq!(resume_offset(None, &cur, 40), 0);
+        // etag 变了（服务器文件已更新）→ 从头
+        let old = sid(Some("\"old\""), None, Some(100));
+        assert_eq!(resume_offset(Some(&old), &cur, 40), 0);
+        // 大小变了 → 从头
+        let other_size = sid(Some("\"abc\""), None, Some(90));
+        assert_eq!(resume_offset(Some(&other_size), &cur, 40), 0);
+        // url 不同 → 从头
+        let mut other_url = sid(Some("\"abc\""), None, Some(100));
+        other_url.url = "https://y/hsjday.zip".into();
+        assert_eq!(resume_offset(Some(&other_url), &cur, 40), 0);
+        // .part 比服务器文件还大 → 从头
+        assert_eq!(resume_offset(Some(&cur), &cur, 101), 0);
+        // 仅 last-modified 一致 → 续传
+        let lm = sid(None, Some("Mon, 16 Nov 2026 10:00:00 GMT"), None);
+        assert_eq!(resume_offset(Some(&lm), &lm, 40), 40);
+        // 既无 etag 也无 last-modified（如备选 URL 无 HEAD 信息）→ 从头
+        let anon = sid(None, None, Some(100));
+        assert_eq!(resume_offset(Some(&anon), &anon, 40), 0);
+        let no_head = SourceId::new("https://x/hsjday.zip", None);
+        assert_eq!(resume_offset(Some(&no_head), &no_head, 40), 0);
+    }
+
+    #[test]
+    fn with_suffix_appends_to_file_name() {
+        let p = Path::new("/tmp/a/hsjday.zip");
+        assert_eq!(with_suffix(p, ".part"), Path::new("/tmp/a/hsjday.zip.part"));
+        assert_eq!(
+            with_suffix(p, ".part.id"),
+            Path::new("/tmp/a/hsjday.zip.part.id")
+        );
     }
 }

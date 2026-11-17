@@ -202,23 +202,31 @@ pub const PACK1: &[u8] = &[
 pub const PACK2: &[u8] = &[
     0x0c, 0x02, 0x18, 0x94, 0x00, 0x01, 0x03, 0x00, 0x03, 0x00, 0x0d, 0x00, 0x02,
 ];
+/// 旧版握手的第三个包（pytdx `setup_cmd3`）。**不要在握手中发送**：
+/// 2026 年下半年起，服务端对发送过此包的连接掐断行情类权限——K 线只回
+/// 2 字节（`20 03`）、行情快照与逐笔回 0 条，而证券列表/除权/财务不受影响，
+/// 表现为「静默返回空」。实测 4 台服务器一致，去掉后立即恢复。
+/// 仅为兼容保留，握手使用 [`HANDSHAKE`]。
+#[deprecated(note = "发送后服务端会掐断 K 线/行情/逐笔权限；握手请使用 HANDSHAKE")]
 pub const PACK3: &[u8] = &[
     0x0c, 0x03, 0x18, 0x99, 0x00, 0x01, 0x20, 0x00, 0x20, 0x00, 0xdb, 0x0f, 0xd5, 0xd0, 0xc9, 0xcc,
     0xd6, 0xa4, 0xa8, 0xaf, 0x00, 0x00, 0x00, 0x8f, 0xc2, 0x25, 0x40, 0x13, 0x00, 0x00, 0xd5, 0x00,
     0xc9, 0xcc, 0xbd, 0xf0, 0xd7, 0xea, 0x00, 0x00, 0x00, 0x02,
 ];
+/// 握手包序列（pytdx `setup_cmd1` + `setup_cmd2`）。不含 `PACK3`，原因见其文档。
+pub const HANDSHAKE: &[&[u8]] = &[PACK1, PACK2];
 pub const RECV_SIZE: usize = 16;
 
+/// 发送握手包（[`HANDSHAKE`]）。`decompress` 为真时按响应头解压并校验长度。
 pub fn send_packs(tcp: &mut super::Tcp, decompress: bool) -> Result<()> {
     use super::{send_recv, send_recv_decompress};
-    if decompress {
-        send_recv_decompress(tcp, PACK1, "PACK1")?;
-        send_recv_decompress(tcp, PACK2, "PACK2")?;
-        send_recv_decompress(tcp, PACK3, "PACK3")?;
-    } else {
-        send_recv(tcp, PACK1, "PACK1")?;
-        send_recv(tcp, PACK2, "PACK2")?;
-        send_recv(tcp, PACK3, "PACK3")?;
+    for (i, pack) in HANDSHAKE.iter().enumerate() {
+        let tag = format!("PACK{}", i + 1);
+        if decompress {
+            send_recv_decompress(tcp, pack, &tag)?;
+        } else {
+            send_recv(tcp, pack, &tag)?;
+        }
     }
     Ok(())
 }

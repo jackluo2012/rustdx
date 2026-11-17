@@ -759,7 +759,7 @@ mod tests {
         let data: Vec<f64> = vec![];
 
         assert_eq!(sma(&data, 5), vec![None; 0]);
-        assert_eq!(ema(&data, 5), vec![]);
+        assert!(ema(&data, 5).is_empty());
         assert_eq!(rsi(&data, 14), vec![None; 0]);
     }
 
