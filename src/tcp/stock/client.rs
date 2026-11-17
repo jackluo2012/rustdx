@@ -541,9 +541,12 @@ impl Client {
     }
 }
 
-/// 今日日期，格式 YYYYMMDD（用于当日分时回退到今日历史分时）。
+/// 今日日期（**北京时间**），格式 YYYYMMDD（用于当日分时回退到今日历史分时）。
+///
+/// 交易日以东八区为准，不能用本机时区：机器在其它时区时「今天」会差一天。
 fn today_yyyymmdd() -> u32 {
-    let today = chrono::Local::now().date_naive();
+    let beijing = chrono::FixedOffset::east_opt(8 * 3600).expect("东八区偏移合法");
+    let today = chrono::Utc::now().with_timezone(&beijing).date_naive();
     (today.year() * 10000 + today.month() as i32 * 100 + today.day() as i32) as u32
 }
 
@@ -819,8 +822,10 @@ fn fetch_k<'a>(
         let d = DateTime::to_u32(bar.dt);
         begin.is_none_or(|b| d >= b) && end.is_none_or(|e| d <= e)
     });
-    // 契约：按日期升序（文档承诺「统一按升序存放」）
-    all.sort_by_key(|bar| DateTime::to_u32(bar.dt));
+    // 契约：按日期升序（文档承诺「统一按升序存放」）；翻页偏移可能重叠，
+    // 排序后重复日期相邻，一并去重（与 bars_range 一致）
+    all.sort_by_key(|bar| bar.dt);
+    all.dedup_by_key(|bar| bar.dt);
     Ok(all)
 }
 
@@ -870,9 +875,13 @@ pub enum Adj {
 ///
 /// 只使用 `category == 1`（除权除息）事件；增发/回购/转配等不改变价格基准。
 fn adjusted_multipliers(days: &[KlineData<'_>], xdxrs: &[XdxrData], adj: Adj) -> Vec<f64> {
+    // 首根 K 线当日及之前的除权事件没有「前一交易日收盘」可用，且对序列内
+    // 各根的相对价格没有影响（首根已是除权后价格），必须跳过——否则会拿首根
+    // 自己的收盘价当前收盘，给整条序列乘上一个错误的常数。
+    let first_date = days.first().map(|d| DateTime::to_u32(d.dt)).unwrap_or(0);
     let mut events: Vec<(u32, f32, f32, f32, f32)> = xdxrs
         .iter()
-        .filter(|x| x.category == 1)
+        .filter(|x| x.category == 1 && x.date > first_date)
         .map(|x| (x.date, x.fh_qltp, x.sg_hltp, x.pg_hzgb, x.pgj_qzgb))
         .collect();
     events.sort_by_key(|e| e.0);
@@ -1048,13 +1057,35 @@ mod tests {
         }
     }
 
-    /// 回退辅助函数：今日日期必须为合法 8 位 YYYYMMDD，且与 chrono 本地日期一致。
+    /// 首根 K 线当日及之前的除权事件不参与复权：后复权首日价 = 实际价。
+    #[test]
+    fn adjusted_multipliers_ignores_events_up_to_first_bar() {
+        use super::Adj;
+        use super::adjusted_multipliers;
+        let days = vec![kd(20260105, 20.0), kd(20260106, 21.0)];
+        // 一个在首根之前、一个恰在首根当日
+        let xdxrs = vec![
+            xdxr(20250601, 0.0, 10.0, 0.0, 0.0),
+            xdxr(20260105, 5.0, 0.0, 0.0, 0.0),
+        ];
+        assert_eq!(
+            adjusted_multipliers(&days, &xdxrs, Adj::Hfq),
+            vec![1.0, 1.0]
+        );
+        assert_eq!(
+            adjusted_multipliers(&days, &xdxrs, Adj::Qfq),
+            vec![1.0, 1.0]
+        );
+    }
+
+    /// 回退辅助函数：今日日期必须为合法 8 位 YYYYMMDD，且为北京时间的日期。
     #[test]
     fn today_yyyymmdd_format() {
         use super::today_yyyymmdd;
         let v = today_yyyymmdd();
         assert!((20000101..=20991231).contains(&v), "非法日期: {v}");
-        let today = chrono::Local::now().date_naive();
+        let beijing = chrono::FixedOffset::east_opt(8 * 3600).unwrap();
+        let today = chrono::Utc::now().with_timezone(&beijing).date_naive();
         let expected = {
             use chrono::Datelike;
             (today.year() * 10000 + today.month() as i32 * 100 + today.day() as i32) as u32

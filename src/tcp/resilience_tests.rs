@@ -51,6 +51,7 @@ fn corrupt_compression_returns_error_and_connection_can_rotate() {
     let (backup, backup_thread) = server(vec![(vec![42], 1)]);
     let config = TcpConfig {
         timeout: Duration::from_secs(1),
+        auto_reconnect: 0, // 关闭默认重试：本用例要观察损坏响应本身的错误
         ..Default::default()
     };
     let mut tcp = Tcp::with_servers(&config, &[primary, backup]).unwrap();

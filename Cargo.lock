@@ -746,7 +746,7 @@ checksum = "a157657054ffe556d8858504af8a672a054a6e0bd9e8ee531059100c0fa11bb2"
 
 [[package]]
 name = "rustdx-cli"
-version = "1.7.2"
+version = "1.8.0"
 dependencies = [
  "argh",
  "calamine",
@@ -765,7 +765,7 @@ dependencies = [
 
 [[package]]
 name = "rustdx-complete"
-version = "1.11.2"
+version = "1.12.0"
 dependencies = [
  "chrono",
  "csv",

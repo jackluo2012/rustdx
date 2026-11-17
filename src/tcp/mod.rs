@@ -39,6 +39,10 @@ pub struct TcpConfig {
     pub ip: Option<SocketAddr>,
     /// 请求总尝试次数（含首次）；`0` 和 `1` 均不重试，`2` 表示失败后重连重发一次。
     /// 保留既有计数语义；与 pytdx 的四次重试策略不同。
+    ///
+    /// 默认 `2`：行情请求幂等，失败（断线、超时、响应畸形）后换下一台服务器
+    /// 重试一次——严格解析会把异常响应报成错误，默认不重试的话调用方要自己
+    /// 处理换服务器。需要旧行为（失败即返回）时显式设为 `0`。
     pub auto_reconnect: usize,
     /// 重试前的退避间隔基数（毫秒）。第 `n` 次失败后等待
     /// `retry_delay_ms × n` 再重连重试（线性退避）。
@@ -49,8 +53,10 @@ pub struct TcpConfig {
     /// K 线区间拉取（[`crate::tcp::stock::Client::k`] /
     /// [`crate::tcp::stock::Client::bars_range`]）空结果二次确认。
     ///
-    /// TDX 服务端高频请求下会**静默返回空响应**（不报错），与停牌股
-    /// 「窗口内本就无 K 线」的真空无法从返回值区分。开启后：空结果时
+    /// 历史上观察到服务端会**静默返回空响应**（不报错），与停牌股
+    /// 「窗口内本就无 K 线」的真空无法从返回值区分。其中多数后来查明是握手
+    /// 发送 `PACK3` 导致的权限降级（已修复，见 [`HANDSHAKE`]），且 K 线的异常
+    /// 响应现在会报错而非返回空；本选项保留作为兜底。开启后：空结果时
     /// 等待 300ms 并重连，重拉一次，仍空才返回空——以停牌股约 300ms/只
     /// 的代价换取全市场扫描不被静默限流污染。默认 `false`（旧行为）。
     pub recheck_empty: bool,
@@ -61,7 +67,7 @@ impl Default for TcpConfig {
         Self {
             timeout: TIMEOUT,
             ip: None,
-            auto_reconnect: 0,
+            auto_reconnect: 2,
             retry_delay_ms: 0,
             recheck_empty: false,
         }

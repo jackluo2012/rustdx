@@ -12,27 +12,13 @@ use std::time::{Duration, Instant};
 
 use crate::tcp::Tcp;
 
-/// 行情服务器列表（按优先级排序）。
+/// 行情服务器列表（按优先级排序：实测可用的在前，超时的在后）。
 pub static STOCK_IP: [SocketAddr; 40] = [
-    // 原列表中实测长期可用的电信主站
+    // 2026-11-17 实测可用（握手 + 日 K 均正常，两轮探测一致），保持原相对顺序
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(115, 238, 56, 198)), 7709),
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(180, 153, 18, 170)), 7709),
-    // mootdx HQ_HOSTS（深圳双线主站）
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(110, 41, 147, 114)), 7709),
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 129, 13, 54)), 7709),
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(120, 24, 149, 49)), 7709),
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(47, 113, 94, 204)), 7709),
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 129, 174, 169)), 7709),
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(110, 41, 154, 219)), 7709),
-    // 上海双线主站
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(124, 70, 176, 52)), 7709),
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(47, 100, 236, 28)), 7709),
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(101, 133, 214, 242)), 7709),
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(47, 116, 21, 80)), 7709),
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(47, 116, 105, 28)), 7709),
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(124, 70, 199, 56)), 7709),
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(106, 14, 201, 131)), 7709),
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(106, 14, 190, 242)), 7709),
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(121, 36, 225, 169)), 7709),
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(123, 60, 70, 228)), 7709),
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(123, 60, 73, 44)), 7709),
@@ -40,7 +26,25 @@ pub static STOCK_IP: [SocketAddr; 40] = [
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(124, 71, 187, 72)), 7709),
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(124, 71, 187, 122)), 7709),
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(123, 60, 84, 66)), 7709),
-    // 北京双线主站
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(124, 71, 9, 153)), 7709),
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(116, 205, 163, 254)), 7709),
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(116, 205, 171, 132)), 7709),
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(116, 205, 183, 150)), 7709),
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(119, 97, 185, 59)), 7709),
+    // 同日实测握手超时。保留在末尾：可能只是本次探测网络不可达，
+    // 故障转移仍会兜底尝试，但不再排在可用服务器之前白白消耗超时
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 129, 13, 54)), 7709),
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(120, 24, 149, 49)), 7709),
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(47, 113, 94, 204)), 7709),
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 129, 174, 169)), 7709),
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(110, 41, 154, 219)), 7709),
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(124, 70, 176, 52)), 7709),
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(47, 100, 236, 28)), 7709),
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(101, 133, 214, 242)), 7709),
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(47, 116, 21, 80)), 7709),
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(47, 116, 105, 28)), 7709),
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(106, 14, 201, 131)), 7709),
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(106, 14, 190, 242)), 7709),
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(121, 36, 54, 217)), 7709),
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(121, 36, 81, 195)), 7709),
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(123, 249, 15, 60)), 7709),
@@ -48,18 +52,11 @@ pub static STOCK_IP: [SocketAddr; 40] = [
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(120, 46, 186, 223)), 7709),
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(124, 70, 22, 210)), 7709),
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(139, 9, 133, 247)), 7709),
-    // 广州双线主站
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(124, 71, 85, 110)), 7709),
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(139, 9, 51, 18)), 7709),
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(139, 159, 239, 163)), 7709),
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(124, 71, 9, 153)), 7709),
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(116, 205, 163, 254)), 7709),
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(116, 205, 171, 132)), 7709),
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(116, 205, 183, 150)), 7709),
-    // 其他
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(119, 97, 185, 59)), 7709), // 武汉电信主站
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(47, 107, 64, 168)), 7709), // 深圳双线主站
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(47, 107, 228, 47)), 7719), // 深圳双线主站（7719 端口）
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(47, 107, 64, 168)), 7709),
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(47, 107, 228, 47)), 7719),
 ];
 
 /// 依次探测服务器列表，返回可以建立 TCP 连接的地址（保持列表顺序）。
@@ -232,7 +229,7 @@ mod tests {
             println!("⚠️  跳过集成测试 (RUSTDX_SKIP_INTEGRATION_TESTS 已设置)");
             return;
         }
-        // 服务器随时间会有增减，要求绝大多数可用（2026-09 实测 40/40 可连）
+        // 服务器随时间会有增减（2026-11 实测 16/40 握手并返回 K 线）
         let alive = check_alive(Duration::from_secs(3));
         println!(
             "✅ 检测到 {} 个可用服务器 (总共 {} 个):",
