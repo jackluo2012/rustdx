@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.11.1 (2026-11-17)
+
+- 修复压缩响应损坏时解压 `unwrap()` 引发 panic；返回 `InvalidData`，并在所有构建中校验解压长度，限制解压分配大小。
+- 新增 `Tcp::with_servers` / `Client::with_servers`：按顺序建连，重连时从当前服务器的下一台开始轮换，所有候选失败才返回错误；原 `with_config(ip=Some)` 仍固定服务器。
+- 新增本地模拟服务器回归测试，覆盖损坏报文、重连后恢复、自动切服重试、初始连接故障转移、空池和长度校验。
+
+使用方式：将 RTT 排序后的地址传给 `Client::with_servers(&config, &servers)`，并设置 `auto_reconnect >= 2`（当前实现为总尝试次数）。配置中的 `ip` 在这个构造方法中被服务器池覆盖；单服务器诊断继续使用 `with_config`。
+
 ## rustdx-cli v1.7.2 (2026-09-10)
 
 ### 🔧 ClickHouse HTTP 诊断与数据边界输出

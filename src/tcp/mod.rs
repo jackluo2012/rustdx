@@ -10,6 +10,9 @@ use std::{
 #[cfg(test)]
 pub(crate) mod tests;
 
+#[cfg(test)]
+mod resilience_tests;
+
 mod basic;
 pub use basic::*;
 
@@ -81,6 +84,8 @@ pub struct Tcp {
     recv: [u8; RECV_SIZE],
     /// 创建本连接所用的配置，[`Tcp::reconnect`] 时使用。
     config: TcpConfig,
+    /// Optional ordered failover pool; explicit `with_config(ip=Some)` stays pinned.
+    servers: Vec<SocketAddr>,
 }
 
 impl Tcp {
@@ -117,6 +122,27 @@ impl Tcp {
         }
     }
 
+    /// Connect using an ordered server pool. Reconnect starts after the current
+    /// server, trying every candidate once (including the current server last).
+    /// `config.ip` is ignored; use `with_config` for a pinned connection.
+    pub fn with_servers(config: &TcpConfig, servers: &[SocketAddr]) -> Result<Self> {
+        let mut last_err = None;
+        for addr in servers {
+            let mut candidate = config.clone();
+            candidate.ip = Some(*addr);
+            match Self::connect_addr(addr, &candidate) {
+                Ok(mut tcp) => {
+                    tcp.servers = servers.to_vec();
+                    return Ok(tcp);
+                }
+                Err(e) => last_err = Some(e),
+            }
+        }
+        Err(last_err.unwrap_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "empty server pool")
+        }))
+    }
+
     /// 连接指定地址并完成握手。
     fn connect_addr(addr: &SocketAddr, config: &TcpConfig) -> Result<Self> {
         let (stream, buffer, recv) = tcpstream_ip_with_timeout(addr, config.timeout)?;
@@ -125,6 +151,7 @@ impl Tcp {
             buffer,
             recv,
             config: config.clone(),
+            servers: Vec::new(),
         };
         send_packs(&mut tcp, false)?;
         Ok(tcp)
@@ -142,7 +169,19 @@ impl Tcp {
     /// tcp.reconnect()?; // 断线后重新连接
     /// ```
     pub fn reconnect(&mut self) -> Result<()> {
-        *self = Self::with_config(&self.config)?;
+        if self.servers.is_empty() {
+            *self = Self::with_config(&self.config)?;
+        } else {
+            let mut servers = self.servers.clone();
+            if let Some(index) = servers
+                .iter()
+                .position(|addr| Some(*addr) == self.config.ip)
+            {
+                let len = servers.len();
+                servers.rotate_left((index + 1) % len);
+            }
+            *self = Self::with_servers(&self.config, &servers)?;
+        }
         Ok(())
     }
 
@@ -301,17 +340,24 @@ pub trait Tdx {
 ///
 /// 有效数据：包含实际有用信息的数据。
 pub fn send_recv_decompress(tcp: &mut Tcp, send: &[u8], tag: &str) -> Result<Vec<u8>> {
-    let (mut buf, deflate_size, inflate_size) = send_recv(tcp, send, tag)?;
+    let (buf, deflate_size, inflate_size) = send_recv(tcp, send, tag)?;
+    decode_response(buf, deflate_size, inflate_size)
+}
 
-    if deflate_size != inflate_size {
-        buf = miniz_oxide::inflate::decompress_to_vec_zlib(&buf).unwrap();
-        trace!("解压后数据：\n{:?}\n", buf);
-        debug_assert_eq!(buf.len(), inflate_size as usize);
+fn decode_response(buf: Vec<u8>, deflate_size: u16, inflate_size: u16) -> Result<Vec<u8>> {
+    let invalid = |message| std::io::Error::new(std::io::ErrorKind::InvalidData, message);
+    let decoded = if deflate_size != inflate_size {
+        // Bound allocation by the declared (u16) protocol size as well as handling
+        // corrupt zlib without unwinding through a caller's connection mutex.
+        miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&buf, inflate_size as usize)
+            .map_err(|_| invalid("invalid or oversized compressed TDX response"))?
     } else {
-        trace!("无需解压\n");
+        buf
     };
-
-    Ok(buf)
+    if decoded.len() != inflate_size as usize {
+        return Err(invalid("TDX response length mismatch"));
+    }
+    Ok(decoded)
 }
 
 // 由于只读取了前 16 字节（TCP_RECV_SIZE），

@@ -50,6 +50,16 @@ impl Client {
         })
     }
 
+    /// Connect to an ordered pool with server rotation on reconnect.
+    pub fn with_servers(
+        config: &TcpConfig,
+        servers: &[std::net::SocketAddr],
+    ) -> std::io::Result<Self> {
+        Ok(Self {
+            tcp: Tcp::with_servers(config, servers)?,
+        })
+    }
+
     /// 重连（见 [`Tcp::reconnect`]）。
     pub fn reconnect(&mut self) -> std::io::Result<()> {
         self.tcp.reconnect()
