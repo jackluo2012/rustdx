@@ -1,5 +1,5 @@
 use crate::bytes_helper::{u16_from_le_bytes, u32_from_le_bytes};
-use crate::tcp::{Tdx, helper::price};
+use crate::tcp::Tdx;
 
 /// 获取股票实时行情快照。对应于 pytdx 中的 hq.get_security_quotes、GetSecurityQuotesCmd。
 ///
@@ -128,36 +128,42 @@ impl<'a> Tdx for SecurityQuotes<'a> {
     /// - 接下来2字节：股票数量（小端 u16）
     /// - 之后每只股票的字段见 [`parse_quote`]。
     fn parse(&mut self, v: Vec<u8>) {
-        // 检查最小长度：至少需要 4 字节（2跳过 + 2数量）
-        if v.len() < 4 {
-            self.response = v;
-            self.data = Vec::new();
-            return;
-        }
+        // The legacy infallible entry point rejects the whole invalid batch.
+        let _ = self.try_parse(v);
+    }
 
-        let mut pos = 0;
-
-        // 跳过前2字节
-        pos += 2;
-
-        // 读取股票数量
-        let num_stocks = u16_from_le_bytes(&v, pos);
-        pos += 2;
-
-        self.data = Vec::with_capacity(num_stocks as usize);
-
-        for i in 0..num_stocks {
-            // 剩余数据不足以包含一只股票的最小头部（market+code+active1 = 9 字节）时停止
-            if pos + 9 > v.len() {
-                debug_assert!(false, "行情数据不完整，只解析了 {i}/{num_stocks} 只股票");
-                break;
-            }
-            // 解析每只股票数据
-            let quote = parse_quote(&v, &mut pos);
-            self.data.push(quote);
-        }
-
+    fn try_parse(&mut self, v: Vec<u8>) -> std::io::Result<()> {
+        self.data.clear();
         self.response = v;
+        let mut pos = 0;
+        let mut cursor = QuoteCursor {
+            data: &self.response,
+            pos: &mut pos,
+        };
+        cursor.take(2)?;
+        let count = cursor.u16()? as usize;
+        if count > self.stocks.len() {
+            return Err(invalid_quote("unexpected quote count"));
+        }
+        let mut parsed = Vec::with_capacity(count);
+        let mut remaining = self.stocks.clone();
+        for _ in 0..count {
+            let market = *self
+                .response
+                .get(pos)
+                .ok_or_else(|| invalid_quote("missing market"))? as u16;
+            let quote = parse_quote(&self.response, &mut pos)?;
+            let Some(index) = remaining
+                .iter()
+                .position(|(m, code)| *m == market && *code == quote.code)
+            else {
+                return Err(invalid_quote("unexpected quote identity or multiplicity"));
+            };
+            remaining.swap_remove(index);
+            parsed.push(quote);
+        }
+        self.data = parsed;
+        Ok(())
     }
 
     fn result(&self) -> &Self::Item {
@@ -174,85 +180,120 @@ impl<'a> Tdx for SecurityQuotes<'a> {
 /// rev4(u16), rev5..rev8, rev9(i16, 涨速×100) + active2(u16)。
 ///
 /// 价格还原公式（pytdx `_cal_price`）：`真实价格 = (price_raw + diff) / 100`。
-fn parse_quote(data: &[u8], pos: &mut usize) -> QuoteData {
-    // market (1字节) + code (6字节) + active1 (2字节)
-    let _market = data[*pos] as u16;
-    *pos += 1;
-    let code_bytes = &data[*pos..*pos + 6];
-    *pos += 6;
-    let code = unsafe { std::str::from_utf8_unchecked(code_bytes) };
-    let code = String::from(code); // 转换为拥有所有权的String
-    let _active1 = u16_from_le_bytes(data, *pos);
-    *pos += 2;
+fn invalid_quote(message: &str) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, message)
+}
+
+struct QuoteCursor<'a, 'b> {
+    data: &'a [u8],
+    pos: &'b mut usize,
+}
+
+impl<'a> QuoteCursor<'a, '_> {
+    fn take(&mut self, len: usize) -> std::io::Result<&'a [u8]> {
+        let end = self
+            .pos
+            .checked_add(len)
+            .ok_or_else(|| invalid_quote("quote offset overflow"))?;
+        let bytes = self
+            .data
+            .get(*self.pos..end)
+            .ok_or_else(|| invalid_quote("truncated quote"))?;
+        *self.pos = end;
+        Ok(bytes)
+    }
+
+    fn u16(&mut self) -> std::io::Result<u16> {
+        Ok(u16_from_le_bytes(self.take(2)?, 0))
+    }
+
+    fn u32(&mut self) -> std::io::Result<u32> {
+        Ok(u32_from_le_bytes(self.take(4)?, 0))
+    }
+
+    fn price(&mut self) -> std::io::Result<i32> {
+        crate::tcp::helper::price_checked(self.data, self.pos)
+            .ok_or_else(|| invalid_quote("truncated or overflowing quote integer"))
+    }
+}
+
+fn parse_quote(data: &[u8], pos: &mut usize) -> std::io::Result<QuoteData> {
+    let mut cursor = QuoteCursor { data, pos };
+    cursor.take(1)?; // market, validated against the requested identity by caller
+    let code_bytes = cursor.take(6)?;
+    if !code_bytes.iter().all(u8::is_ascii_digit) {
+        return Err(invalid_quote("invalid stock code"));
+    }
+    let code = std::str::from_utf8(code_bytes)
+        .map_err(|_| invalid_quote("invalid UTF-8 stock code"))?
+        .to_owned();
+    cursor.u16()?; // active1
 
     // 价格与差值（变长编码；price 为绝对价×100，其余字段为相对 price 的差值）
-    let price_raw = price(data, pos);
-    let last_close_diff = price(data, pos);
-    let open_diff = price(data, pos);
-    let high_diff = price(data, pos);
-    let low_diff = price(data, pos);
+    let price_raw = cursor.price()?;
+    let last_close_diff = cursor.price()?;
+    let open_diff = cursor.price()?;
+    let high_diff = cursor.price()?;
+    let low_diff = cursor.price()?;
 
     // reversed_bytes0：服务器时间，编码为 HHMM+SSMM 的十进制拼接
     // （如 11298811 = 11:29:52.866，见 [`servertime_string`]）
-    let reversed_bytes0 = price(data, pos);
+    let reversed_bytes0 = cursor.price()?;
     // reversed_bytes1：实测恒为 -price
-    let _reversed_bytes1 = price(data, pos);
+    let _reversed_bytes1 = cursor.price()?;
 
     // vol、cur_vol：累计成交量与现量，单位：手（原始值，不做 /100）
-    let vol = price(data, pos);
-    let cur_vol = price(data, pos);
+    let vol = cursor.price()?;
+    let cur_vol = cursor.price()?;
 
     // amount (4字节 u32，TDX 浮点编码)
-    let amount_raw = u32_from_le_bytes(data, *pos);
-    *pos += 4;
+    let amount_raw = cursor.u32()?;
     let amount = crate::tcp::helper::vol_amount(amount_raw as i32);
 
     // s_vol、b_vol：外盘、内盘（手）
-    let s_vol = price(data, pos);
-    let b_vol = price(data, pos);
+    let s_vol = cursor.price()?;
+    let b_vol = cursor.price()?;
 
     // reversed_bytes2-3
-    let _reversed_bytes2 = price(data, pos);
-    let _reversed_bytes3 = price(data, pos);
+    let _reversed_bytes2 = cursor.price()?;
+    let _reversed_bytes3 = cursor.price()?;
 
     // 买一到买五、卖一到卖五：价格（相对差值）及其成交量（手）
-    let bid1 = price(data, pos);
-    let ask1 = price(data, pos);
-    let bid1_vol = price(data, pos);
-    let ask1_vol = price(data, pos);
+    let bid1 = cursor.price()?;
+    let ask1 = cursor.price()?;
+    let bid1_vol = cursor.price()?;
+    let ask1_vol = cursor.price()?;
 
-    let bid2 = price(data, pos);
-    let ask2 = price(data, pos);
-    let bid2_vol = price(data, pos);
-    let ask2_vol = price(data, pos);
+    let bid2 = cursor.price()?;
+    let ask2 = cursor.price()?;
+    let bid2_vol = cursor.price()?;
+    let ask2_vol = cursor.price()?;
 
-    let bid3 = price(data, pos);
-    let ask3 = price(data, pos);
-    let bid3_vol = price(data, pos);
-    let ask3_vol = price(data, pos);
+    let bid3 = cursor.price()?;
+    let ask3 = cursor.price()?;
+    let bid3_vol = cursor.price()?;
+    let ask3_vol = cursor.price()?;
 
-    let bid4 = price(data, pos);
-    let ask4 = price(data, pos);
-    let bid4_vol = price(data, pos);
-    let ask4_vol = price(data, pos);
+    let bid4 = cursor.price()?;
+    let ask4 = cursor.price()?;
+    let bid4_vol = cursor.price()?;
+    let ask4_vol = cursor.price()?;
 
-    let bid5 = price(data, pos);
-    let ask5 = price(data, pos);
-    let bid5_vol = price(data, pos);
-    let ask5_vol = price(data, pos);
+    let bid5 = cursor.price()?;
+    let ask5 = cursor.price()?;
+    let bid5_vol = cursor.price()?;
+    let ask5_vol = cursor.price()?;
 
     // reversed_bytes4 (u16)
-    let _reversed_bytes4 = u16_from_le_bytes(data, *pos);
-    *pos += 2;
+    let _reversed_bytes4 = cursor.u16()?;
     // reversed_bytes5-8
-    let _reversed_bytes5 = price(data, pos);
-    let _reversed_bytes6 = price(data, pos);
-    let _reversed_bytes7 = price(data, pos);
-    let _reversed_bytes8 = price(data, pos);
+    let _reversed_bytes5 = cursor.price()?;
+    let _reversed_bytes6 = cursor.price()?;
+    let _reversed_bytes7 = cursor.price()?;
+    let _reversed_bytes8 = cursor.price()?;
     // reversed_bytes9（涨速×100，有符号 i16）+ active2（u16）
-    let reversed_bytes9 = u16_from_le_bytes(data, *pos) as i16;
-    let _active2 = u16_from_le_bytes(data, *pos + 2);
-    *pos += 4;
+    let reversed_bytes9 = cursor.u16()? as i16;
+    let _active2 = cursor.u16()?;
 
     // 按 pytdx _cal_price 公式还原真实价格：`(price_raw + diff) / 100`
     let base = price_raw as f64;
@@ -270,7 +311,7 @@ fn parse_quote(data: &[u8], pos: &mut usize) -> QuoteData {
         0.0
     };
 
-    QuoteData {
+    Ok(QuoteData {
         code,
         price,
         last_close,
@@ -306,7 +347,7 @@ fn parse_quote(data: &[u8], pos: &mut usize) -> QuoteData {
         ask5: (base + ask5 as f64) / 100.0,
         bid5_vol: bid5_vol as f64,
         ask5_vol: ask5_vol as f64,
-    }
+    })
 }
 
 /// 将 reversed_bytes0 解码为服务器时间字符串。
@@ -326,10 +367,17 @@ fn servertime_string(v: i32) -> String {
     }
     let (head, tail) = s.split_at(s.len() - 6);
     let hour: u32 = head.parse().unwrap_or(u32::MAX);
-    let minute: u32 = tail[..2].parse().unwrap_or(u32::MAX);
-    let sec_raw: f64 = tail[2..].parse().unwrap_or(f64::NAN);
-    // pytdx 公式：秒 = 原始值 * 60 / 10000（如 8811 → 52.866 秒）
-    let seconds = sec_raw * 60.0 / 10000.0;
+    let raw: u32 = tail.parse().unwrap_or(u32::MAX);
+    let minute_part = raw / 10_000;
+    let (minute, seconds) = if minute_part < 60 {
+        (minute_part, (raw % 10_000) as f64 * 60.0 / 10_000.0)
+    } else {
+        // pytdx also supports a fractional-hour encoding when MM >= 60.
+        (
+            raw * 60 / 1_000_000,
+            (raw * 60 % 1_000_000) as f64 * 60.0 / 1_000_000.0,
+        )
+    };
     if hour > 23 || minute > 59 || !(0.0..60.0).contains(&seconds) {
         return String::new();
     }
@@ -484,7 +532,121 @@ mod tests {
     }
 
     #[test]
+    fn truncated_quote_never_panics_or_returns_partial_data() {
+        let hex = "0114010000303030303031fe08a61242440a45bb9fe30ae612a9853d0d31160e4e91981e98ed1e00bfaf0700019f12074102a724ab3b4203911295164304a8288a234405a33296457501000000000000fe08";
+        let bytes: Vec<u8> = (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+            .collect();
+        for end in 0..bytes.len() {
+            let outcome = std::panic::catch_unwind(|| {
+                let mut quotes = SecurityQuotes::default();
+                quotes.parse(bytes[..end].to_vec());
+                assert!(quotes.data.is_empty(), "partial quote must not escape");
+            });
+            assert!(outcome.is_ok(), "panic at truncation {end}");
+        }
+    }
+
+    #[test]
+    fn same_packets_match_actual_pytdx_parser() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("fixtures/pytdx_quotes.json")).unwrap();
+        assert_eq!(
+            fixture["commit"],
+            "2857fdad08534533610bd2aeca387f760c4baa42"
+        );
+        for (index, case) in fixture["fixtures"].as_array().unwrap().iter().enumerate() {
+            let hex = case["body_hex"].as_str().unwrap();
+            let bytes = (0..hex.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+                .collect();
+            let stocks: Vec<_> = case["stocks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|s| (s[0].as_u64().unwrap() as u16, s[1].as_str().unwrap()))
+                .collect();
+            let mut parser = SecurityQuotes::new(stocks);
+            let request = parser
+                .send()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>();
+            assert_eq!(request, case["request_hex"].as_str().unwrap());
+            parser.try_parse(bytes).unwrap();
+            assert_eq!(parser.data.len(), case["quotes"].as_array().unwrap().len());
+            for (quote, expected) in parser.data.iter().zip(case["quotes"].as_array().unwrap()) {
+                let actual = serde_json::to_value(quote).unwrap();
+                for (field, value) in expected.as_object().unwrap() {
+                    if let Some(want) = value.as_f64() {
+                        let got = actual[field].as_f64().unwrap();
+                        assert!(
+                            (got - want).abs() <= want.abs() * 1e-12 + 1e-12,
+                            "fixture {index}, {field}: got {got}, want {want}"
+                        );
+                    } else {
+                        assert_eq!(&actual[field], value, "fixture {index}, {field}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn duplicate_requests_preserve_pytdx_multiplicity() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("fixtures/pytdx_quotes.json")).unwrap();
+        let hex = fixture["fixtures"][2]["body_hex"].as_str().unwrap();
+        let bytes: Vec<u8> = (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+            .collect();
+        let mut twice = vec![0, 0, 2, 0];
+        twice.extend_from_slice(&bytes[4..]);
+        twice.extend_from_slice(&bytes[4..]);
+        let mut requested_twice = SecurityQuotes::new(vec![(0, "000001"); 2]);
+        requested_twice.try_parse(twice.clone()).unwrap();
+        assert_eq!(requested_twice.data.len(), 2);
+        let mut requested_once = SecurityQuotes::new(vec![(0, "000001"), (1, "600000")]);
+        assert!(requested_once.try_parse(twice).is_err());
+        assert!(requested_once.data.is_empty());
+    }
+
+    #[test]
+    fn malformed_quotes_return_errors_without_partial_rows() {
+        let mut parser = SecurityQuotes::default();
+        for body in [
+            vec![],
+            vec![0, 0, 1, 0],
+            vec![0, 0, 2, 0],
+            vec![0, 0, 1, 0, 0, 255, 255, 255, 255, 255, 255, 0, 0],
+            vec![
+                0, 0, 1, 0, 0, b'0', b'0', b'0', b'0', b'0', b'1', 0, 0, 128, 128, 128, 128, 128, 0,
+            ],
+        ] {
+            assert_eq!(
+                parser.try_parse(body).unwrap_err().kind(),
+                std::io::ErrorKind::InvalidData
+            );
+            assert!(parser.data.is_empty());
+        }
+        let mut seed = 20261117u64;
+        for len in 0..256 {
+            let mut body = vec![0, 0, 1, 0, 0, b'0', b'0', b'0', b'0', b'0', b'1', 0, 0];
+            for _ in 0..len {
+                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+                body.push((seed >> 32) as u8);
+            }
+            // Any byte sequence is safe; successfully parsed unknown tail fields are allowed.
+            let _ = parser.try_parse(body);
+        }
+    }
+
+    #[test]
     fn test_servertime_string() {
+        assert_eq!(servertime_string(10600000), "10:36:00.000");
         assert_eq!(servertime_string(11298811), "11:29:52.866");
         assert_eq!(servertime_string(9561810), "09:56:10.860"); // 1810*60/10000 = 10.86
         assert_eq!(servertime_string(0), "");

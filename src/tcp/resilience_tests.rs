@@ -3,6 +3,22 @@ use std::net::TcpListener;
 use std::thread;
 
 fn server(responses: Vec<(Vec<u8>, u16)>) -> (SocketAddr, thread::JoinHandle<()>) {
+    server_with_lengths(
+        responses
+            .into_iter()
+            .map(|(body, size)| {
+                let wire = body.len() as u16;
+                (body, size, wire)
+            })
+            .collect(),
+        1,
+    )
+}
+
+fn server_with_lengths(
+    responses: Vec<(Vec<u8>, u16, u16)>,
+    request_len: usize,
+) -> (SocketAddr, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     let handle = thread::spawn(move || {
@@ -16,11 +32,11 @@ fn server(responses: Vec<(Vec<u8>, u16)>) -> (SocketAddr, thread::JoinHandle<()>
             assert_eq!(request, pack);
             stream.write_all(&[0; 16]).unwrap();
         }
-        for (payload, inflate_size) in responses {
-            let mut request = [0; 1];
+        for (payload, inflate_size, wire_size) in responses {
+            let mut request = vec![0; request_len];
             stream.read_exact(&mut request).unwrap();
             let mut header = [0u8; 16];
-            header[12..14].copy_from_slice(&(payload.len() as u16).to_le_bytes());
+            header[12..14].copy_from_slice(&wire_size.to_le_bytes());
             header[14..16].copy_from_slice(&inflate_size.to_le_bytes());
             stream.write_all(&header).unwrap();
             stream.write_all(&payload).unwrap();
@@ -146,4 +162,114 @@ fn exhausted_pool_returns_error_without_discarding_candidates() {
     handle.join().unwrap();
     assert!(tcp.reconnect().is_err());
     assert_eq!(tcp.servers, vec![addr]);
+}
+
+#[test]
+fn corrupt_compression_automatically_retries_the_whole_request() {
+    let (primary, primary_thread) = server(vec![(vec![1, 2, 3], 12)]);
+    let (backup, backup_thread) = server(vec![(vec![42], 1)]);
+    let cfg = TcpConfig {
+        auto_reconnect: 2,
+        timeout: Duration::from_secs(1),
+        ..Default::default()
+    };
+    let mut tcp = Tcp::with_servers(&cfg, &[primary, backup]).unwrap();
+    assert_eq!(
+        send_recv_decompress(&mut tcp, &[1], "corrupt retry").unwrap(),
+        [42]
+    );
+    primary_thread.join().unwrap();
+    backup_thread.join().unwrap();
+}
+
+#[test]
+fn partial_body_automatically_reconnects_before_retry() {
+    let (primary, first) = server_with_lengths(vec![(vec![1], 2, 2)], 1);
+    let (backup, second) = server(vec![(vec![42], 1)]);
+    let cfg = TcpConfig {
+        auto_reconnect: 2,
+        timeout: Duration::from_secs(1),
+        ..Default::default()
+    };
+    let mut tcp = Tcp::with_servers(&cfg, &[primary, backup]).unwrap();
+    assert_eq!(
+        send_recv_decompress(&mut tcp, &[1], "partial body").unwrap(),
+        [42]
+    );
+    first.join().unwrap();
+    second.join().unwrap();
+}
+
+#[test]
+fn malformed_quote_is_retried_instead_of_returning_partial_data() {
+    use crate::tcp::stock::SecurityQuotes;
+    let hex = "0114010000303030303031fe08a61242440a45bb9fe30ae612a9853d0d31160e4e91981e98ed1e00bfaf0700019f12074102a724ab3b4203911295164304a8288a234405a33296457501000000000000fe08";
+    let body: Vec<u8> = (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+        .collect();
+    let size = body.len() as u16;
+    let mut parser = SecurityQuotes::default();
+    let request_len = parser.send().len();
+    let (primary, first) = server_with_lengths(vec![(vec![0, 0, 1, 0], 4, 4)], request_len);
+    let (backup, second) = server_with_lengths(vec![(body, size, size)], request_len);
+    let cfg = TcpConfig {
+        auto_reconnect: 2,
+        timeout: Duration::from_secs(1),
+        ..Default::default()
+    };
+    let mut tcp = Tcp::with_servers(&cfg, &[primary, backup]).unwrap();
+    let quotes = parser.recv_parsed(&mut tcp).unwrap();
+    assert_eq!(quotes.len(), 1);
+    assert_eq!(quotes[0].price, 11.9);
+    assert_eq!(tcp.config().auto_reconnect, 2);
+    first.join().unwrap();
+    second.join().unwrap();
+}
+
+#[test]
+fn failed_handshake_does_not_recursively_reconnect() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let handle = thread::spawn(move || {
+        let deadline = std::time::Instant::now() + Duration::from_millis(300);
+        let mut count = 0;
+        while std::time::Instant::now() < deadline && count < 3 {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    drop(stream);
+                    count += 1;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(1))
+                }
+                Err(e) => panic!("{e}"),
+            }
+        }
+        count
+    });
+    let cfg = TcpConfig {
+        auto_reconnect: 2,
+        ip: Some(addr),
+        timeout: Duration::from_millis(100),
+        ..Default::default()
+    };
+    assert!(Tcp::with_config(&cfg).is_err());
+    assert_eq!(handle.join().unwrap(), 1);
+}
+
+#[test]
+fn zero_retry_attempts_is_an_input_error() {
+    let (addr, handle) = server(vec![]);
+    let mut tcp = Tcp::with_config(&TcpConfig {
+        ip: Some(addr),
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(
+        tcp.retry(|_| Ok(()), 0).unwrap_err().kind(),
+        std::io::ErrorKind::InvalidInput
+    );
+    handle.join().unwrap();
 }

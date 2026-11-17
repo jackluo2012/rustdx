@@ -129,7 +129,7 @@ let mut tcp = Tcp::with_config(&cfg)?;
 tcp.heartbeat()?;
 tcp.reconnect()?;
 
-// 断线自动重连：0 = 关闭（默认，保持旧行为）；1~2 = 请求失败时自动重连并重发
+// 总尝试次数（含首次）：0/1 = 不重试；2 = 请求失败后重连重试一次
 // 行情请求是幂等的，长时运行的策略程序建议开启，避免偶发断线后整条链路失败
 let cfg = TcpConfig {
     timeout: Duration::from_secs(5),
@@ -138,6 +138,18 @@ let cfg = TcpConfig {
 };
 let mut tcp = Tcp::with_config(&cfg)?;
 ```
+
+需要限制整轮采集耗时时，使用绝对截止时间，而不是只设置单次 I/O 的 `timeout`：
+
+```rust,ignore
+let deadline = std::time::Instant::now() + Duration::from_secs(30);
+let mut client = Client::with_servers_until(&cfg, &rustdx_complete::tcp::ip::STOCK_IP, deadline)?;
+let quotes = client.quotes(&[(0, "000001")])?;
+// 下一轮开始前刷新预算；包含失败重连和握手，不重新赠送 30 秒。
+client.tcp.set_deadline(Some(std::time::Instant::now() + Duration::from_secs(30)));
+```
+
+同一 deadline 覆盖库内建连、握手、收发完整响应、重试和等待。中断响应会关闭连接，下轮刷新预算后自动重建。`set_deadline(None)` 恢复仅单次 I/O 超时的模式；旧构造方法默认没有整轮截止时间。
 
 > 所有 `Client` 方法（`quotes`/`k`/`k_batch`/`k_adjusted`/`minute`/`xdxr` 等）出错时，
 > 错误信息都会附带**接口名 + 市场/代码 + 字段**上下文（如

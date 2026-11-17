@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.11.2 (2026-11-17)
+
+- 对照 rainx/pytdx `2857fdad08534533610bd2aeca387f760c4baa42`，补齐服务器时间的第二种编码分支，修复成交额高位为 1 时的无符号指数提取。
+- quotes 增加逐字段安全解析及可失败的 `Tdx::try_parse` 钩子；截断、整数溢出、非法代码、超出请求重数或意外身份返回 InvalidData，不再 panic、使用 unchecked UTF-8 或暴露半批数据。
+- 请求重试覆盖正文、解压和可失败解析，关闭嵌套重试防止尝试次数相乘；握手错误直接交由服务器选择层处理，不递归重连。
+- 当日/历史分时增加整数溢出防护，历史分时异常时整批丢弃。
+- 添加实际 Python 解析器生成的 128 组 quotes、32 组当日分时和 32 组历史分时请求/响应 fixtures 及本地模拟网络故障回归；生成脚本位于 scripts/pytdx_quote_fixtures.py。
+- 新增绝对截止时间接口 `Tcp::with_config_until`、`Tcp/Client::with_servers_until`、`Tcp::set_deadline` 和 `ip::check_alive_by_rtt_until`，贯穿探测、连接、握手、正文/头部读写、重连、退避及空包重查；中断帧关闭连接并在下一轮重建。逐步返回的慢响应不能刷新总预算。
+- 明确 auto_reconnect 的既有语义为总尝试次数，0/1 不重试，2 为重试一次；不将其等同于 pytdx 默认四次重试。
+
 ## v1.11.1 (2026-11-17)
 
 - 修复压缩响应损坏时解压 `unwrap()` 引发 panic；返回 `InvalidData`，并在所有构建中校验解压长度，限制解压分配大小。

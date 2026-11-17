@@ -3,7 +3,7 @@ use log::trace;
 use std::{
     io::{BufReader, Read, Result, Write},
     net::{SocketAddr, TcpStream},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 #[macro_use]
@@ -12,6 +12,9 @@ pub(crate) mod tests;
 
 #[cfg(test)]
 mod resilience_tests;
+
+#[cfg(test)]
+mod deadline_tests;
 
 mod basic;
 pub use basic::*;
@@ -34,8 +37,8 @@ pub struct TcpConfig {
     pub timeout: Duration,
     /// 指定服务器地址。`None` 表示使用 [`ip::STOCK_IP`] 列表自动选择。
     pub ip: Option<SocketAddr>,
-    /// 请求失败时自动重连重试的次数（每次失败先重连、再重发请求）。
-    /// 默认 `0` = 不自动重试（与旧版行为一致）；日常使用建议 `1~2`。
+    /// 请求总尝试次数（含首次）；`0` 和 `1` 均不重试，`2` 表示失败后重连重发一次。
+    /// 保留既有计数语义；与 pytdx 的四次重试策略不同。
     pub auto_reconnect: usize,
     /// 重试前的退避间隔基数（毫秒）。第 `n` 次失败后等待
     /// `retry_delay_ms × n` 再重连重试（线性退避）。
@@ -86,6 +89,8 @@ pub struct Tcp {
     config: TcpConfig,
     /// Optional ordered failover pool; explicit `with_config(ip=Some)` stays pinned.
     servers: Vec<SocketAddr>,
+    deadline: Option<Instant>,
+    needs_reconnect: bool,
 }
 
 impl Tcp {
@@ -105,32 +110,48 @@ impl Tcp {
     /// - 为 `None` 时按 [`ip::STOCK_IP`] 列表顺序故障转移——TCP 连接与协议握手
     ///   都成功才算可用（部分服务器 TCP 可连但不响应行情协议）。
     pub fn with_config(config: &TcpConfig) -> Result<Self> {
+        Self::with_config_inner(config, None)
+    }
+
+    /// Connect and handshake within one absolute deadline, shared by all servers.
+    pub fn with_config_until(config: &TcpConfig, deadline: Instant) -> Result<Self> {
+        Self::with_config_inner(config, Some(deadline))
+    }
+
+    fn with_config_inner(config: &TcpConfig, deadline: Option<Instant>) -> Result<Self> {
         match config.ip {
-            Some(addr) => Self::connect_addr(&addr, config),
-            None => {
-                let mut last_err = None;
-                for addr in ip::STOCK_IP.iter() {
-                    match Self::connect_addr(addr, config) {
-                        Ok(tcp) => return Ok(tcp),
-                        Err(e) => last_err = Some((addr, e)),
-                    }
-                }
-                let (addr, err) = last_err.expect("服务器列表不能为空");
-                log::warn!("所有行情服务器连接/握手失败，最后尝试: {addr}");
-                Err(err)
-            }
+            Some(addr) => Self::connect_addr(&addr, config, deadline),
+            None => Self::with_servers_inner(config, &ip::STOCK_IP, deadline),
         }
     }
 
-    /// Connect using an ordered server pool. Reconnect starts after the current
-    /// server, trying every candidate once (including the current server last).
+    /// Connect using an ordered server pool; reconnect rotates after the current server.
     /// `config.ip` is ignored; use `with_config` for a pinned connection.
     pub fn with_servers(config: &TcpConfig, servers: &[SocketAddr]) -> Result<Self> {
+        Self::with_servers_inner(config, servers, None)
+    }
+
+    /// Connect using an ordered pool within one absolute deadline. Reconnect,
+    /// handshake, request I/O, retries and backoff retain this same deadline.
+    pub fn with_servers_until(
+        config: &TcpConfig,
+        servers: &[SocketAddr],
+        deadline: Instant,
+    ) -> Result<Self> {
+        Self::with_servers_inner(config, servers, Some(deadline))
+    }
+
+    fn with_servers_inner(
+        config: &TcpConfig,
+        servers: &[SocketAddr],
+        deadline: Option<Instant>,
+    ) -> Result<Self> {
         let mut last_err = None;
         for addr in servers {
+            operation_timeout(config.timeout, deadline)?;
             let mut candidate = config.clone();
             candidate.ip = Some(*addr);
-            match Self::connect_addr(addr, &candidate) {
+            match Self::connect_addr(addr, &candidate, deadline) {
                 Ok(mut tcp) => {
                     tcp.servers = servers.to_vec();
                     return Ok(tcp);
@@ -138,23 +159,121 @@ impl Tcp {
                 Err(e) => last_err = Some(e),
             }
         }
+        operation_timeout(config.timeout, deadline)?;
         Err(last_err.unwrap_or_else(|| {
             std::io::Error::new(std::io::ErrorKind::InvalidInput, "empty server pool")
         }))
     }
 
-    /// 连接指定地址并完成握手。
-    fn connect_addr(addr: &SocketAddr, config: &TcpConfig) -> Result<Self> {
-        let (stream, buffer, recv) = tcpstream_ip_with_timeout(addr, config.timeout)?;
+    fn connect_addr(
+        addr: &SocketAddr,
+        config: &TcpConfig,
+        deadline: Option<Instant>,
+    ) -> Result<Self> {
+        let timeout = operation_timeout(config.timeout, deadline)?;
+        let (stream, buffer, recv) = tcpstream_ip_with_timeout(addr, timeout)?;
         let mut tcp = Self {
             stream,
             buffer,
             recv,
             config: config.clone(),
             servers: Vec::new(),
+            deadline,
+            needs_reconnect: false,
         };
+        // Never recursively retry a failed handshake.
+        tcp.config.auto_reconnect = 0;
         send_packs(&mut tcp, false)?;
+        tcp.config = config.clone();
+        tcp.check_deadline()?;
         Ok(tcp)
+    }
+
+    /// Set the budget for the next synchronous operation. Use a fresh absolute
+    /// deadline each polling round; None restores per-I/O timeouts only.
+    /// An interrupted frame is discarded and reconnected before the next request.
+    pub fn set_deadline(&mut self, deadline: Option<Instant>) {
+        self.deadline = deadline;
+    }
+
+    fn invalidate(&mut self) {
+        self.needs_reconnect = true;
+        let _ = self.stream.shutdown(std::net::Shutdown::Both);
+    }
+
+    fn check_deadline(&mut self) -> Result<()> {
+        if self.deadline.is_some_and(|at| Instant::now() >= at) {
+            self.invalidate();
+            return Err(deadline_error());
+        }
+        Ok(())
+    }
+
+    fn io_timeout(&mut self) -> Result<Duration> {
+        self.check_deadline()?;
+        operation_timeout(self.config.timeout, self.deadline)
+    }
+
+    pub(crate) fn sleep_with_deadline(&mut self, duration: Duration) -> Result<()> {
+        self.check_deadline()?;
+        let sleep = self
+            .deadline
+            .map(|at| duration.min(at.saturating_duration_since(Instant::now())))
+            .unwrap_or(duration);
+        std::thread::sleep(sleep);
+        self.check_deadline()
+    }
+
+    fn read_exact_until(&mut self, output: &mut [u8]) -> Result<()> {
+        let result = (|| {
+            let mut offset = 0;
+            while offset < output.len() {
+                let timeout = self.io_timeout()?;
+                self.buffer.get_ref().set_read_timeout(Some(timeout))?;
+                match self.buffer.read(&mut output[offset..]) {
+                    Ok(0) => {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::UnexpectedEof,
+                            "TDX response closed",
+                        ));
+                    }
+                    Ok(n) => offset += n,
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(e) => return Err(e),
+                }
+            }
+            self.check_deadline()
+        })();
+        if result.is_err() {
+            self.invalidate();
+        }
+        result
+    }
+
+    fn write_all_until(&mut self, input: &[u8]) -> Result<()> {
+        let result = (|| {
+            let mut offset = 0;
+            while offset < input.len() {
+                let timeout = self.io_timeout()?;
+                self.stream.set_write_timeout(Some(timeout))?;
+                match self.stream.write(&input[offset..]) {
+                    Ok(0) => {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::WriteZero,
+                            "TDX request write returned zero",
+                        ));
+                    }
+                    Ok(n) => offset += n,
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(e) => return Err(e),
+                }
+            }
+            self.check_deadline()
+        })();
+        if result.is_err() {
+            self.invalidate();
+        }
+        result
     }
 
     /// 当前连接配置（[`TcpConfig::recheck_empty`] 等高级选项由此读取）。
@@ -169,8 +288,9 @@ impl Tcp {
     /// tcp.reconnect()?; // 断线后重新连接
     /// ```
     pub fn reconnect(&mut self) -> Result<()> {
+        self.check_deadline()?;
         if self.servers.is_empty() {
-            *self = Self::with_config(&self.config)?;
+            *self = Self::with_config_inner(&self.config, self.deadline)?;
         } else {
             let mut servers = self.servers.clone();
             if let Some(index) = servers
@@ -180,7 +300,7 @@ impl Tcp {
                 let len = servers.len();
                 servers.rotate_left((index + 1) % len);
             }
-            *self = Self::with_servers(&self.config, &servers)?;
+            *self = Self::with_servers_inner(&self.config, &servers, self.deadline)?;
         }
         Ok(())
     }
@@ -205,14 +325,20 @@ impl Tcp {
         mut f: impl FnMut(&mut Tcp) -> Result<T>,
         attempts: usize,
     ) -> Result<T> {
-        debug_assert!(attempts >= 1);
+        if attempts == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "attempts must be positive",
+            ));
+        }
         let mut last_err = None;
         for attempt in 0..attempts {
+            self.check_deadline()?;
             match f(self) {
                 Ok(v) => return Ok(v),
                 Err(e) => {
                     if attempt + 1 < attempts {
-                        self.backoff(attempt as u64 + 1);
+                        self.backoff(attempt as u64 + 1)?;
                         self.reconnect()?;
                     }
                     last_err = Some(e);
@@ -222,11 +348,23 @@ impl Tcp {
         Err(last_err.unwrap())
     }
 
-    /// 重试退避：第 `n` 次失败后按 `retry_delay_ms × n` 等待（配置为 0 时不等待）。
-    fn backoff(&self, failed: u64) {
-        if self.config.retry_delay_ms > 0 {
-            std::thread::sleep(Duration::from_millis(self.config.retry_delay_ms * failed));
+    fn without_auto_retry<T>(&mut self, f: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
+        let configured = self.config.auto_reconnect;
+        self.config.auto_reconnect = 0;
+        // Preserve configuration even if a legacy parser panics; rethrow the panic.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(self)));
+        self.config.auto_reconnect = configured;
+        match result {
+            Ok(result) => result,
+            Err(payload) => std::panic::resume_unwind(payload),
         }
+    }
+
+    /// 重试退避：第 `n` 次失败后按 `retry_delay_ms × n` 等待（配置为 0 时不等待）。
+    fn backoff(&mut self, failed: u64) -> Result<()> {
+        self.sleep_with_deadline(Duration::from_millis(
+            self.config.retry_delay_ms.saturating_mul(failed),
+        ))
     }
 
     /// 发送并接收字节。需要对接收的字节进行解析（参考 [`Tdx::parse`] 的实现）。
@@ -240,39 +378,18 @@ impl Tcp {
     /// 字节重发（行情查询请求幂等，可安全重试）。
     pub fn send_recv(&mut self, send: &[u8]) -> Result<(usize, usize)> {
         let attempts = self.config.auto_reconnect.max(1);
-        let mut last_err: Option<std::io::Error> = None;
-        for attempt in 0..attempts {
-            match self.send_recv_once(send) {
-                Ok(v) => return Ok(v),
-                Err(e) => {
-                    last_err = Some(e);
-                    if attempt + 1 < attempts {
-                        log::warn!(
-                            "行情请求失败（第 {} 次），自动重连后重发: {:?}",
-                            attempt + 1,
-                            last_err.as_ref().unwrap().kind()
-                        );
-                        self.backoff(attempt as u64 + 1);
-                        match self.reconnect() {
-                            Ok(()) => continue,
-                            Err(re) => {
-                                log::error!("自动重连失败: {re}");
-                                return Err(re);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Err(last_err.unwrap_or_else(|| std::io::Error::other("行情请求失败")))
+        self.retry(|tcp| tcp.send_recv_once(send), attempts)
     }
 
-    /// 单次发送并接收（不重试）。
     fn send_recv_once(&mut self, send: &[u8]) -> Result<(usize, usize)> {
-        self.stream.write_all(send)?;
-        // 一次性读满 16 字节响应头：单次 read 在 TCP 分段时可能只返回部分字节，
-        // 导致后续从错误偏移解析响应长度。
-        self.buffer.read_exact(&mut self.recv)?;
+        self.check_deadline()?;
+        if self.needs_reconnect {
+            self.reconnect()?;
+        }
+        self.write_all_until(send)?;
+        let mut header = [0; RECV_SIZE];
+        self.read_exact_until(&mut header)?;
+        self.recv = header;
         trace!("send: {:?}\nrecv[16B]: {:?}", send, self);
         Ok((send.len(), RECV_SIZE))
     }
@@ -324,9 +441,27 @@ pub trait Tdx {
 
     /// 得到和解析响应的字节，并返回解析的数据。
     fn recv_parsed(&mut self, tcp: &mut Tcp) -> Result<&Self::Item> {
-        let response = self.recv(tcp)?;
-        self.parse(response);
+        let attempts = tcp.config.auto_reconnect.max(1);
+        tcp.retry(
+            |tcp| {
+                // Like pytdx's API decorator, retry receive + decode + fallible parse
+                // as one operation. Suppress inner transport retries to avoid N² attempts.
+                tcp.without_auto_retry(|tcp| {
+                    let response = self.recv(tcp)?;
+                    self.try_parse(response)?;
+                    tcp.check_deadline()
+                })
+            },
+            attempts,
+        )?;
         Ok(self.result())
+    }
+
+    /// Fallible parser hook. Implementations handling untrusted data can reject
+    /// malformed responses without panicking or returning partial data.
+    fn try_parse(&mut self, response: Vec<u8>) -> Result<()> {
+        self.parse(response);
+        Ok(())
     }
 
     /// 解析后的结果。可以是引用，也可以是 owned type 。
@@ -340,8 +475,16 @@ pub trait Tdx {
 ///
 /// 有效数据：包含实际有用信息的数据。
 pub fn send_recv_decompress(tcp: &mut Tcp, send: &[u8], tag: &str) -> Result<Vec<u8>> {
-    let (buf, deflate_size, inflate_size) = send_recv(tcp, send, tag)?;
-    decode_response(buf, deflate_size, inflate_size)
+    let attempts = tcp.config.auto_reconnect.max(1);
+    tcp.retry(
+        |tcp| {
+            let (buf, deflate_size, inflate_size) = read_response_once(tcp, send, tag)?;
+            let decoded = decode_response(buf, deflate_size, inflate_size)?;
+            tcp.check_deadline()?;
+            Ok(decoded)
+        },
+        attempts,
+    )
 }
 
 fn decode_response(buf: Vec<u8>, deflate_size: u16, inflate_size: u16) -> Result<Vec<u8>> {
@@ -366,12 +509,17 @@ fn decode_response(buf: Vec<u8>, deflate_size: u16, inflate_size: u16) -> Result
 // 如果不使用 BufReader ，那么需要手动 read 剩余字节。
 // 对于 TcpStream ，Write::flush 没有做任何事情，所以无需调用。
 pub fn send_recv(tcp: &mut Tcp, send: &[u8], tag: &str) -> Result<(Vec<u8>, u16, u16)> {
-    tcp.send_recv(send)?;
+    let attempts = tcp.config.auto_reconnect.max(1);
+    tcp.retry(|tcp| read_response_once(tcp, send, tag), attempts)
+}
+
+fn read_response_once(tcp: &mut Tcp, send: &[u8], tag: &str) -> Result<(Vec<u8>, u16, u16)> {
+    tcp.send_recv_once(send)?;
     trace!("{tag}\nsend: {:?}\nrecv[16B]: {:?}", send, tcp);
 
     let deflate_size = u16_from_le_bytes(&tcp.recv, 12); // 响应信息中的待解压长度
     let mut buf = vec![0; deflate_size as usize];
-    tcp.buffer.read_exact(&mut buf)?;
+    tcp.read_exact_until(&mut buf)?;
 
     let inflate_size = u16_from_le_bytes(&tcp.recv, 14); // 响应信息中的解压后长度
     #[rustfmt::skip]
@@ -379,6 +527,33 @@ pub fn send_recv(tcp: &mut Tcp, send: &[u8], tag: &str) -> Result<(Vec<u8>, u16,
            &tcp.recv[12..14], deflate_size, &tcp.recv[14..16], inflate_size, buf);
 
     Ok((buf, deflate_size, inflate_size))
+}
+
+fn deadline_error() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::TimedOut,
+        "TDX operation deadline exceeded",
+    )
+}
+
+fn operation_timeout(timeout: Duration, deadline: Option<Instant>) -> Result<Duration> {
+    if timeout.is_zero() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "timeout must be positive",
+        ));
+    }
+    match deadline {
+        Some(at) => {
+            let remaining = at.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                Err(deadline_error())
+            } else {
+                Ok(timeout.min(remaining))
+            }
+        }
+        None => Ok(timeout),
+    }
 }
 
 /// 默认的超时值。

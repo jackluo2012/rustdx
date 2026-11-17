@@ -90,6 +90,7 @@ impl<'a> Tdx for HistoryMinuteTime<'a> {
         let mut pos = 6; // 数量(2) + 跳过4
 
         let mut last_price = 0i32;
+        let mut parsed = Vec::new();
 
         for _ in 0..num_points {
             if v.len() - pos < 3 {
@@ -108,23 +109,23 @@ impl<'a> Tdx for HistoryMinuteTime<'a> {
                 return;
             };
 
-            last_price += price_raw;
+            let Some(next_price) = last_price.checked_add(price_raw) else {
+                self.response = v;
+                return;
+            };
+            last_price = next_price;
             let price = last_price as f64 / 100.0;
 
-            self.data
-                .push(super::minute_time::MinuteTimeData { price, vol });
+            parsed.push(super::minute_time::MinuteTimeData { price, vol });
         }
 
         // 防御性校验（同当日分时）：协议变化时返回空数据而非垃圾
-        let points_complete = self.data.len() == num_points as usize;
+        let points_complete = parsed.len() == num_points as usize;
         let bytes_consumed = points_complete && pos + 8 >= v.len();
-        let prices_valid = self
-            .data
-            .iter()
-            .all(|d| (0.01..=100000.0).contains(&d.price));
+        let prices_valid = parsed.iter().all(|d| (0.01..=100000.0).contains(&d.price));
 
-        if !points_complete || !bytes_consumed || !prices_valid {
-            self.data = Vec::new();
+        if points_complete && bytes_consumed && prices_valid {
+            self.data = parsed;
         }
 
         self.response = v;
@@ -138,6 +139,14 @@ impl<'a> Tdx for HistoryMinuteTime<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn truncated_later_point_discards_the_entire_batch() {
+        let mut parser = HistoryMinuteTime::new(0, "000001", 20261117);
+        let body = vec![2, 0, 0, 0, 0, 0, 0x84, 0x0e, 0, 0xa4, 1, 0, 128, 128];
+        parser.parse(body);
+        assert!(parser.data.is_empty());
+    }
 
     #[test]
     fn test_new() {

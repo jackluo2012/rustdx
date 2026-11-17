@@ -60,6 +60,17 @@ impl Client {
         })
     }
 
+    /// Connect with one shared absolute deadline for the complete server pool.
+    pub fn with_servers_until(
+        config: &TcpConfig,
+        servers: &[std::net::SocketAddr],
+        deadline: std::time::Instant,
+    ) -> std::io::Result<Self> {
+        Ok(Self {
+            tcp: Tcp::with_servers_until(config, servers, deadline)?,
+        })
+    }
+
     /// 重连（见 [`Tcp::reconnect`]）。
     pub fn reconnect(&mut self) -> std::io::Result<()> {
         self.tcp.reconnect()
@@ -658,7 +669,7 @@ fn recheck_empty<T>(
     if !first.is_empty() {
         return Ok(first);
     }
-    std::thread::sleep(std::time::Duration::from_millis(300));
+    tcp.sleep_with_deadline(std::time::Duration::from_millis(300))?;
     tcp.reconnect()?;
     fetch(tcp)
 }
