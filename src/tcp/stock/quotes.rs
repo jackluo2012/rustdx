@@ -236,7 +236,7 @@ fn parse_quote(data: &[u8], pos: &mut usize) -> std::io::Result<QuoteData> {
     let high_diff = cursor.price()?;
     let low_diff = cursor.price()?;
 
-    // reversed_bytes0：行情时间的原始整数（见 [`servertime_string`]）
+    // reversed_bytes0：行情时间，相对 price 的差值（见 [`servertime_string`]）
     let reversed_bytes0 = cursor.price()?;
     // reversed_bytes1：实测恒为 -price
     let _reversed_bytes1 = cursor.price()?;
@@ -325,7 +325,7 @@ fn parse_quote(data: &[u8], pos: &mut usize) -> std::io::Result<QuoteData> {
         change,
         change_percent,
         speed: reversed_bytes9 as f64 / 100.0,
-        servertime: servertime_string(reversed_bytes0),
+        servertime: servertime_string(i64::from(reversed_bytes0) + i64::from(price_raw)),
         servertime_raw: reversed_bytes0,
         bid1: (base + bid1 as f64) / 100.0,
         ask1: (base + ask1 as f64) / 100.0,
@@ -350,56 +350,51 @@ fn parse_quote(data: &[u8], pos: &mut usize) -> std::io::Result<QuoteData> {
     })
 }
 
-/// 将 reversed_bytes0 解码为行情时间字符串 `HH:MM:SS.mmm`。
+/// 将行情时间整数解码为字符串 `HH:MM:SS.mmm`。
 ///
-/// 实测（2026-11 盘中每 3 秒采样）该值是「服务器当前时间按 `HHMMSScc` 拼成的
-/// 十进制整数，再减去一个因证券而异的偏移（百分之一秒）」：
+/// 入参是**已加回现价**的值：协议字段 reversed_bytes0 与开/高/低/昨收一样，
+/// 是相对现价（单位：分）的差值，`时间整数 = reversed_bytes0 + price_raw`。
+/// 加回后就是规整的十进制拼接：
 ///
-/// - 每秒固定增加 100，末两位是百分之一秒；部分证券（如 ETF）多一位，为毫秒；
-/// - 同一时刻各服务器返回的值完全一致（来自上游行情源，不是服务器本机时钟），
-///   收盘后仍按约 15 秒一档继续推进；个别证券长期落后十几分钟，原因未明；
-/// - 因为是整数相减，秒位/分位会借位成 60~99（如 `14438775` 读作 14:43:87.75），
-///   减 40 即还原（14:43:47.75，与前后快照各差 3 秒，连续）；
-/// - 偏移小于 40 秒时（活跃证券）还原是精确的；偏移更大时借位不可辨，
-///   结果只是近似，需要自行处理时请用 [`QuoteData::servertime_raw`]。
+/// - 7 位 `HMMSScc`、8 位 `HHMMSScc`：末两位是百分之一秒；
+/// - 9 位 `HHMMSSmmm`（ETF、B 股等）：末三位是毫秒；
+/// - 8 位且按 `HHMMSScc` 读不合法时（如 `93005001`），按 `HMMSSmmm` 读。
 ///
-/// 位数与布局：7 位 = `HMMSScc`，9 位 = `HHMMSSmmm`，8 位优先按 `HHMMSScc`，
-/// 小时非法（如 `93012345`）时按 `HMMSSmmm`。
+/// 依据（2026-11-17 实测 40 只股票/ETF/指数/B 股）：加回现价后全部是合法时间，
+/// 收盘后落在整 15 秒档位（如 `15:12:45.01`），各服务器同一时刻返回值一致。
 ///
-/// 注意：这与 pytdx `_format_time`（把后四位当作「分钟的万分之几」）不同——
-/// 该公式与实测不符（3 秒一次的快照会被算成间隔 1.8 秒），9 位值还会得到
-/// `144:15:05` 这样的非法时间。
+/// pytdx `_format_time` 没有加回现价，而是把后四位当作「分钟的万分之几」
+/// 去凑，结果与实测不符：价格越高偏差越大（1458 元的股票偏约 15 分钟），
+/// 9 位值还会得到 `144:15:05` 这样的非法时间。
 ///
-/// 值异常（无法解码出合理时间）时返回空字符串。
-fn servertime_string(v: i32) -> String {
+/// 值异常（无法解码出合法时间）时返回空字符串。
+fn servertime_string(v: i64) -> String {
     if v <= 0 {
         return String::new();
     }
     let s = v.to_string();
-    // (小时位数, 小数位数) 的候选布局，按优先级排列
-    let layouts: &[(usize, usize)] = match s.len() {
-        7 => &[(1, 2)],
-        8 => &[(2, 2), (1, 3)],
-        9 => &[(2, 3)],
-        _ => &[],
+    // (小时位数, 小数位数)。8 位只在前两位不是合法小时时才按 HMMSSmmm 读，
+    // 避免分/秒非法的值落到另一种布局、解出离谱的时间
+    let (hour_len, frac_len) = match s.len() {
+        7 => (1, 2),
+        8 if s[..2].parse::<u32>().is_ok_and(|h| h <= 23) => (2, 2),
+        8 => (1, 3),
+        9 => (2, 3),
+        _ => return String::new(),
     };
-    layouts
-        .iter()
-        .find_map(|&(hour_len, frac_len)| servertime_layout(&s, hour_len, frac_len))
-        .unwrap_or_default()
+    servertime_layout(&s, hour_len, frac_len).unwrap_or_default()
 }
 
-/// 按给定布局解码；小时非法时返回 `None`。
+/// 按给定布局解码；时/分/秒任一非法时返回 `None`。
 fn servertime_layout(s: &str, hour_len: usize, frac_len: usize) -> Option<String> {
     let field = |from: usize, to: usize| s.get(from..to)?.parse::<u32>().ok();
     let hour = field(0, hour_len)?;
-    // 整数相减的借位：60~99 实为「下一单位减去若干」，减 40 还原到 20~59
-    let unborrow = |x: u32| if x >= 60 { x - 40 } else { x };
-    let minute = unborrow(field(hour_len, hour_len + 2)?);
-    let second = unborrow(field(hour_len + 2, hour_len + 4)?);
+    let minute = field(hour_len, hour_len + 2)?;
+    let second = field(hour_len + 2, hour_len + 4)?;
     let frac = field(hour_len + 4, hour_len + 4 + frac_len)?;
     let millis = if frac_len == 2 { frac * 10 } else { frac };
-    (hour <= 23).then(|| format!("{hour:02}:{minute:02}:{second:02}.{millis:03}"))
+    (hour <= 23 && minute < 60 && second < 60)
+        .then(|| format!("{hour:02}:{minute:02}:{second:02}.{millis:03}"))
 }
 
 /// 股票实时行情数据（完整五档买卖盘，字段语义与 pytdx get_security_quotes 对齐）。
@@ -435,13 +430,14 @@ pub struct QuoteData {
     pub speed: f64,
     /// 行情时间（`HH:MM:SS.mmm`，如 `14:43:47.750`；无法解码时为空）。
     ///
-    /// 由 [`QuoteData::servertime_raw`] 解码而来：活跃证券（时间偏移小于 40 秒）
-    /// 精确，其余只是近似。**与 pytdx 的 `servertime` 不同**（其公式与实测不符）。
+    /// 该证券本次快照的时间，由协议字段加回现价后解码（见
+    /// [`QuoteData::servertime_raw`]）。**与 pytdx 的 `servertime` 不同**：
+    /// pytdx 没有加回现价，价格越高偏差越大。
     pub servertime: String,
-    /// 行情时间的原始整数（协议字段 reversed_bytes0）。
+    /// 行情时间的协议原始值（reversed_bytes0）。
     ///
-    /// 实测为「服务器当前时间按 `HHMMSScc`（部分证券为 `HHMMSSmmm`）拼成的整数
-    /// 减去因证券而异的偏移」，不是规整的时间编码；需要自行处理时使用。
+    /// 它是相对现价的差值：`servertime_raw + 现价×100` 才是时间整数
+    /// （`HHMMSScc`，ETF 等为 `HHMMSSmmm`）。一般直接用 [`QuoteData::servertime`]。
     pub servertime_raw: i32,
     /// 买一价（元）
     pub bid1: f64,
@@ -553,10 +549,11 @@ mod tests {
         // 涨跌：change = 11.90 - 11.88 = 0.02
         assert!((q.change - 0.02).abs() < 1e-9);
         assert!((q.change_percent - 0.1684).abs() < 1e-4);
-        // 行情时间：原始值 11298811，秒位 88 为借位，还原为 48.11 秒
-        // （pytdx 对同一值输出 11:29:52.866，其公式与实测不符）
+        // 行情时间：原始值 11298811 是相对现价的差值，加回现价 1190（分）得
+        // 11300001，即 11:30:00.01（抓包时刻 11:29~11:30；pytdx 未加回现价，
+        // 对同一值输出 11:29:52.866）
         assert_eq!(q.servertime_raw, 11298811);
-        assert_eq!(q.servertime, "11:29:48.110");
+        assert_eq!(q.servertime, "11:30:00.010");
     }
 
     #[test]
@@ -608,7 +605,7 @@ mod tests {
             for (quote, expected) in parser.data.iter().zip(case["quotes"].as_array().unwrap()) {
                 let actual = serde_json::to_value(quote).unwrap();
                 for (field, value) in expected.as_object().unwrap() {
-                    // servertime 有意不与 pytdx 对齐（其解码公式与实测不符，
+                    // servertime 有意不与 pytdx 对齐（pytdx 未加回现价，
                     // 见 servertime_string），由 test_servertime_string 单独覆盖
                     if field == "servertime" {
                         continue;
@@ -677,27 +674,28 @@ mod tests {
         }
     }
 
-    /// 样本来自 2026-11-17 盘中每 3 秒一次的实盘采样（括号内为采样时的本机时间）。
+    /// 入参为「原始值 + 现价」。样本来自 2026-11-17 实盘（注释为 原始值 + 现价）。
     #[test]
     fn test_servertime_string() {
-        // 000001（百分秒）：相邻快照相隔 3 秒，跨本机整分时原始值跳增 4000
-        assert_eq!(servertime_string(14433575), "14:43:35.750"); // 14:43:49
-        assert_eq!(servertime_string(14434475), "14:43:44.750"); // 14:43:58
-        assert_eq!(servertime_string(14438775), "14:43:47.750"); // 14:44:01，秒位借位
-        assert_eq!(servertime_string(14439976), "14:43:59.760"); // 14:44:13
-        assert_eq!(servertime_string(14440275), "14:44:02.750"); // 14:44:16
-        // 510300（ETF，毫秒，9 位）
-        assert_eq!(servertime_string(144344952), "14:43:44.952");
-        assert_eq!(servertime_string(144399958), "14:43:59.958"); // 秒位借位
-        // 分位也借位：15:00:06.50 减 13.81 秒
-        assert_eq!(servertime_string(14999269), "14:59:52.690");
-        // 10 点前：7 位为 HMMSScc；8 位且小时非法时为 HMMSSmmm
-        assert_eq!(servertime_string(9561810), "09:56:18.100");
-        assert_eq!(servertime_string(93012345), "09:30:12.345");
-        // 异常值
+        assert_eq!(servertime_string(15121501), "15:12:15.010"); // 000001: 15120276 + 1225
+        // 600519：不加现价时看似落后约 15 分钟
+        assert_eq!(servertime_string(15115401), "15:11:54.010"); // 14969631 + 145770
+        assert_eq!(servertime_string(15124500), "15:12:45.000"); // 399001: 14060648 + 1063852
+        // 9 位：毫秒（ETF、B 股）
+        assert_eq!(servertime_string(151258000), "15:12:58.000"); // 510300: 151253958 + 4042
+        assert_eq!(servertime_string(150000000), "15:00:00.000"); // 900901: 149999502 + 498
+        // 盘中样本：000001 相隔 3 秒的两次快照（现价 1225），跨整分
+        assert_eq!(servertime_string(14434475 + 1225), "14:43:57.000");
+        assert_eq!(servertime_string(14438775 + 1225), "14:44:00.000");
+        // 10 点前：7 位为 HMMSScc；8 位且按 HHMMSScc 不合法时为 HMMSSmmm
+        assert_eq!(servertime_string(9300501), "09:30:05.010");
+        assert_eq!(servertime_string(93005001), "09:30:05.001");
+        // 异常值：非正数、位数不对、分/秒越界
         assert_eq!(servertime_string(0), "");
         assert_eq!(servertime_string(-1), "");
-        assert_eq!(servertime_string(123), ""); // 过短
-        assert_eq!(servertime_string(i32::MAX), ""); // 10 位
+        assert_eq!(servertime_string(123), "");
+        assert_eq!(servertime_string(15126501), ""); // 秒 65
+        assert_eq!(servertime_string(15601501), ""); // 分 60
+        assert_eq!(servertime_string(1_512_150_100), ""); // 10 位
     }
 }
