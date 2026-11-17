@@ -32,9 +32,9 @@ pub struct Client {
     pub tcp: Tcp,
 }
 
-/// `k_batch` 的任务队列：`(输入序号, market, code)`。
+/// 批量拉取（`k_batch`/`bars_batch`）的任务队列：`(输入序号, market, code)`。
 type BatchQueue<'a> = Arc<Mutex<VecDeque<(usize, u16, &'a str)>>>;
-/// `k_batch` 的结果槽：按输入序号存放各股票的拉取结果。
+/// 批量拉取的结果槽：按输入序号存放各股票的拉取结果。
 type BatchResults<'a> = Arc<Mutex<Vec<Option<std::io::Result<Vec<KlineData<'a>>>>>>>;
 
 impl Client {
@@ -268,70 +268,19 @@ impl Client {
         end: Option<u32>,
         max_parallel: usize,
     ) -> std::io::Result<Vec<BatchKline<'a>>> {
-        if stocks.is_empty() {
-            return Ok(Vec::new());
-        }
-        let workers = match max_parallel {
-            0 => std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(4),
-            n => n,
-        }
-        .min(stocks.len())
-        .max(1);
-
-        let pool = ConnectionPool::new(workers)?;
-        let queue: BatchQueue<'a> = Arc::new(Mutex::new(
-            stocks
-                .iter()
-                .enumerate()
-                .map(|(i, &(m, c))| (i, m, c))
-                .collect(),
-        ));
-        let results: BatchResults<'a> =
-            Arc::new(Mutex::new((0..stocks.len()).map(|_| None).collect()));
-
-        // 固定 worker 数 = 连接池大小：每个 worker 持一条连接处理队列，
-        // 避免反复建连/归还的锁竞争，也不会触发连接池饱和错误。
-        std::thread::scope(|s| {
-            for _ in 0..workers {
-                let queue = Arc::clone(&queue);
-                let results = Arc::clone(&results);
-                let pool = pool.clone();
-                s.spawn(move || {
-                    let Ok(mut conn) = pool.get_connection() else {
-                        return;
-                    };
-                    loop {
-                        let item = queue.lock().unwrap().pop_front();
-                        let Some((idx, market, code)) = item else {
-                            break;
-                        };
-                        let r = conn.execute(|tcp| {
-                            fetch_k(tcp, market, code, begin, end).map_err(|e| {
-                                ctx_err(e, format_args!("k_batch(market={market}, code={code})"))
-                            })
-                        });
-                        results.lock().unwrap()[idx] = Some(r);
-                    }
-                });
-            }
-        });
-
-        let mut out = Vec::with_capacity(stocks.len());
-        for (i, &(market, code)) in stocks.iter().enumerate() {
-            let result = results.lock().unwrap()[i].take().unwrap_or_else(|| {
-                Err(std::io::Error::other(
-                    "worker 未能处理该股票（连接建立失败）",
-                ))
-            });
-            out.push(BatchKline {
+        let results = run_batch(stocks, max_parallel, |tcp, market, code| {
+            fetch_k(tcp, market, code, begin, end)
+                .map_err(|e| ctx_err(e, format_args!("k_batch(market={market}, code={code})")))
+        })?;
+        Ok(stocks
+            .iter()
+            .zip(results)
+            .map(|(&(market, code), result)| BatchKline {
                 market,
                 code,
                 result,
-            });
-        }
-        Ok(out)
+            })
+            .collect())
     }
 
     /// 批量拉取多只股票任意周期 K 线区间（内部连接池并行，不占用当前连接）。
@@ -356,75 +305,23 @@ impl Client {
         end: Option<u32>,
         max_parallel: usize,
     ) -> std::io::Result<Vec<BatchBars<'a>>> {
-        if stocks.is_empty() {
-            return Ok(Vec::new());
-        }
-        let workers = match max_parallel {
-            0 => std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(4),
-            n => n,
-        }
-        .min(stocks.len())
-        .max(1);
-
-        let pool = ConnectionPool::new(workers)?;
-        let queue: BatchQueue<'a> = Arc::new(Mutex::new(
-            stocks
-                .iter()
-                .enumerate()
-                .map(|(i, &(m, c))| (i, m, c))
-                .collect(),
-        ));
-        let results: BatchResults<'a> =
-            Arc::new(Mutex::new((0..stocks.len()).map(|_| None).collect()));
-
-        // 固定 worker 数 = 连接池大小：每个 worker 持一条连接处理队列
-        std::thread::scope(|s| {
-            for _ in 0..workers {
-                let queue = Arc::clone(&queue);
-                let results = Arc::clone(&results);
-                let pool = pool.clone();
-                s.spawn(move || {
-                    let Ok(mut conn) = pool.get_connection() else {
-                        return;
-                    };
-                    loop {
-                        let item = queue.lock().unwrap().pop_front();
-                        let Some((idx, market, code)) = item else {
-                            break;
-                        };
-                        let r = conn.execute(|tcp| {
-                            fetch_bars_range(tcp, market, code, category, begin, end).map_err(|e| {
-                                ctx_err(
-                                    e,
-                                    format_args!(
-                                        "bars_batch(market={market}, code={code}, \
-                                             category={category})"
-                                    ),
-                                )
-                            })
-                        });
-                        results.lock().unwrap()[idx] = Some(r);
-                    }
-                });
-            }
-        });
-
-        let mut out = Vec::with_capacity(stocks.len());
-        for (i, &(market, code)) in stocks.iter().enumerate() {
-            let result = results.lock().unwrap()[i].take().unwrap_or_else(|| {
-                Err(std::io::Error::other(
-                    "worker 未能处理该股票（连接建立失败）",
-                ))
-            });
-            out.push(BatchBars {
+        let results = run_batch(stocks, max_parallel, |tcp, market, code| {
+            fetch_bars_range(tcp, market, code, category, begin, end).map_err(|e| {
+                ctx_err(
+                    e,
+                    format_args!("bars_batch(market={market}, code={code}, category={category})"),
+                )
+            })
+        })?;
+        Ok(stocks
+            .iter()
+            .zip(results)
+            .map(|(&(market, code), result)| BatchBars {
                 market,
                 code,
                 result,
-            });
-        }
-        Ok(out)
+            })
+            .collect())
     }
 
     /// 按日期区间拉取**复权**日K线（前复权/后复权，本地计算）。
@@ -655,6 +552,79 @@ fn ctx_err(e: std::io::Error, ctx: std::fmt::Arguments<'_>) -> std::io::Error {
     std::io::Error::new(e.kind(), format!("{ctx}: {e}"))
 }
 
+/// 批量拉取通用执行器：内部连接池并行，对每只股票调用 `fetch`，
+/// 按输入顺序返回各自结果（`k_batch`/`bars_batch` 共用）。
+///
+/// - `max_parallel == 0` 按 CPU 核数自动；
+/// - 单只失败不影响其他；worker 建连失败时，未被处理的股票结果为
+///   `worker 未能处理该股票（连接建立失败）`。
+fn run_batch<'a, F>(
+    stocks: &[(u16, &'a str)],
+    max_parallel: usize,
+    fetch: F,
+) -> std::io::Result<Vec<std::io::Result<Vec<KlineData<'a>>>>>
+where
+    F: Fn(&mut Tcp, u16, &'a str) -> std::io::Result<Vec<KlineData<'a>>> + Sync,
+{
+    if stocks.is_empty() {
+        return Ok(Vec::new());
+    }
+    let workers = match max_parallel {
+        0 => std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4),
+        n => n,
+    }
+    .min(stocks.len())
+    .max(1);
+
+    let pool = ConnectionPool::new(workers)?;
+    let queue: BatchQueue<'a> = Arc::new(Mutex::new(
+        stocks
+            .iter()
+            .enumerate()
+            .map(|(i, &(m, c))| (i, m, c))
+            .collect(),
+    ));
+    let results: BatchResults<'a> = Arc::new(Mutex::new((0..stocks.len()).map(|_| None).collect()));
+
+    // 固定 worker 数 = 连接池大小：每个 worker 持一条连接处理队列，
+    // 避免反复建连/归还的锁竞争，也不会触发连接池饱和错误。
+    let fetch = &fetch;
+    std::thread::scope(|s| {
+        for _ in 0..workers {
+            let queue = Arc::clone(&queue);
+            let results = Arc::clone(&results);
+            let pool = pool.clone();
+            s.spawn(move || {
+                let Ok(mut conn) = pool.get_connection() else {
+                    return;
+                };
+                loop {
+                    let item = queue.lock().unwrap().pop_front();
+                    let Some((idx, market, code)) = item else {
+                        break;
+                    };
+                    let r = conn.execute(|tcp| fetch(tcp, market, code));
+                    results.lock().unwrap()[idx] = Some(r);
+                }
+            });
+        }
+    });
+
+    let mut results = results.lock().unwrap();
+    Ok(results
+        .iter_mut()
+        .map(|slot| {
+            slot.take().unwrap_or_else(|| {
+                Err(std::io::Error::other(
+                    "worker 未能处理该股票（连接建立失败）",
+                ))
+            })
+        })
+        .collect())
+}
+
 /// 避免与 facade 文档中的 `SecurityQuotes` 混淆的内部别名。
 use super::SecurityQuotes as SecurityQuotesRef;
 
@@ -680,28 +650,29 @@ const BARS_PAGE: u16 = 800;
 /// 乱码日期，封顶兜底（800 × 40 = 3.2 万根，约 660 个交易日的 5 分钟线）。
 const MAX_BARS_PAGES: usize = 40;
 
-/// 从给定连接按日期区间拉取任意周期 K 线：自动翻页、去重、窗口过滤、升序。
+/// 区间翻页通用实现：自动翻页、去重、窗口过滤、升序。
 ///
-/// 与 `Client::bars_range` 共用逻辑（`Client::k` 的日K专用版见 [`fetch_k`]）。
-fn fetch_bars_range<'a>(
-    tcp: &mut Tcp,
-    market: u16,
-    code: &'a str,
-    category: u16,
+/// 股票（0x052c）与指数（0x052d）K 线区间回补共用同一套约定，仅「拉取一页」
+/// 的请求类型与元素类型不同，由调用方以闭包注入：
+///
+/// - `fetch_page(start)`: 拉取偏移 `start` 起的一页（至多 [`BARS_PAGE`] 根）；
+/// - `dt`: 取元素时间戳。
+///
+/// 不依赖 [`Tcp`]，判停/去重/过滤逻辑可离线单测。
+fn fetch_paged_range<T>(
+    mut fetch_page: impl FnMut(u16) -> std::io::Result<Vec<T>>,
+    dt: impl Fn(&T) -> DateTime,
     begin: Option<u32>,
     end: Option<u32>,
-) -> std::io::Result<Vec<KlineData<'a>>> {
-    let _ = tcp.config(); // 保留扩展点：页级退避等
-    let mut all: Vec<KlineData<'a>> = Vec::new();
+) -> std::io::Result<Vec<T>> {
+    let mut all: Vec<T> = Vec::new();
     let mut start = 0u16;
     let mut pages = 0usize;
     loop {
-        let mut kline = Kline::new(market, code, category, start, BARS_PAGE);
-        kline.recv_parsed(tcp)?;
-        let bars = kline.result().to_vec();
+        let bars = fetch_page(start)?;
         let n = bars.len();
         // 页内最旧一根（顺序无关；乱码日期页由下方年份校验拦截）
-        let oldest = bars.iter().map(|b| b.dt).min();
+        let oldest = bars.iter().map(&dt).min();
         all.extend(bars);
         pages += 1;
         if n < BARS_PAGE as usize {
@@ -729,13 +700,36 @@ fn fetch_bars_range<'a>(
     }
 
     // 升序 + 翻页偏移重叠去重（排序后重复时间戳相邻）+ 窗口过滤（丢弃乱码日期页残留）
-    all.sort_by_key(|b| b.dt);
-    all.dedup_by_key(|b| b.dt);
+    all.sort_by_key(&dt);
+    all.dedup_by_key(|b| dt(b));
     all.retain(|bar| {
-        let d = DateTime::to_u32(bar.dt);
+        let d = DateTime::to_u32(dt(bar));
         begin.is_none_or(|b| d >= b) && end.is_none_or(|e| d <= e)
     });
     Ok(all)
+}
+
+/// 从给定连接按日期区间拉取任意周期 K 线：自动翻页、去重、窗口过滤、升序。
+///
+/// 与 `Client::bars_range` 共用逻辑（`Client::k` 的日K专用版见 [`fetch_k`]）。
+fn fetch_bars_range<'a>(
+    tcp: &mut Tcp,
+    market: u16,
+    code: &'a str,
+    category: u16,
+    begin: Option<u32>,
+    end: Option<u32>,
+) -> std::io::Result<Vec<KlineData<'a>>> {
+    fetch_paged_range(
+        |start| {
+            let mut kline = Kline::new(market, code, category, start, BARS_PAGE);
+            kline.recv_parsed(tcp)?;
+            Ok(kline.result().to_vec())
+        },
+        |b| b.dt,
+        begin,
+        end,
+    )
 }
 
 /// 从给定连接按日期区间拉取指数K线：自动翻页、去重、窗口过滤、升序。
@@ -750,51 +744,16 @@ fn fetch_index_bars_range<'a>(
     begin: Option<u32>,
     end: Option<u32>,
 ) -> std::io::Result<Vec<IndexKlineData<'a>>> {
-    let _ = tcp.config(); // 保留扩展点：页级退避等
-    let mut all: Vec<IndexKlineData<'a>> = Vec::new();
-    let mut start = 0u16;
-    let mut pages = 0usize;
-    loop {
-        let mut kline = IndexKline::new(market, code, category, start, BARS_PAGE);
-        kline.recv_parsed(tcp)?;
-        let bars = kline.result().to_vec();
-        let n = bars.len();
-        // 页内最旧一根（顺序无关；乱码日期页由下方年份校验拦截）
-        let oldest = bars.iter().map(|b| b.dt).min();
-        all.extend(bars);
-        pages += 1;
-        if n < BARS_PAGE as usize {
-            break; // 历史尽头
-        }
-        let Some(oldest) = oldest else {
-            break;
-        };
-        if !(2000..=2070).contains(&oldest.year) {
-            break; // 服务器历史深度耗尽，开始返回乱码日期
-        }
-        if let Some(begin) = begin {
-            // 页内最旧数据已早于 begin，停止翻页（min 判停，顺序无关）
-            if DateTime::to_u32(oldest) < begin {
-                break;
-            }
-        }
-        if pages >= MAX_BARS_PAGES {
-            break;
-        }
-        start = start.saturating_add(BARS_PAGE);
-        if start == 0 {
-            break; // u16 溢出，服务器历史已耗尽
-        }
-    }
-
-    // 升序 + 翻页偏移重叠去重 + 窗口过滤
-    all.sort_by_key(|b| b.dt);
-    all.dedup_by_key(|b| b.dt);
-    all.retain(|bar| {
-        let d = DateTime::to_u32(bar.dt);
-        begin.is_none_or(|b| d >= b) && end.is_none_or(|e| d <= e)
-    });
-    Ok(all)
+    fetch_paged_range(
+        |start| {
+            let mut kline = IndexKline::new(market, code, category, start, BARS_PAGE);
+            kline.recv_parsed(tcp)?;
+            Ok(kline.result().to_vec())
+        },
+        |b| b.dt,
+        begin,
+        end,
+    )
 }
 
 /// 除权参考价（`category == 1` 除权除息事件）：
@@ -1101,5 +1060,150 @@ mod tests {
             (today.year() * 10000 + today.month() as i32 * 100 + today.day() as i32) as u32
         };
         assert_eq!(v, expected);
+    }
+    /// 生成同一天内 `n` 根互不重复的分钟级时间戳（**降序**，模拟服务器页内乱序）。
+    fn minute_page(date: u32, n: usize) -> Vec<crate::tcp::helper::DateTime> {
+        let (y, m, d) = (date / 10000, date / 100 % 100, date % 100);
+        (0..n)
+            .rev()
+            .map(|i| crate::tcp::helper::DateTime {
+                year: y as u16,
+                month: m as u16,
+                day: d as u16,
+                hour: (i / 60) as u16,
+                minute: (i % 60) as u16,
+            })
+            .collect()
+    }
+
+    /// 用假分页数据驱动泛型翻页函数，返回（结果, 实际请求过的 start 偏移）。
+    fn run_paged(
+        pages: Vec<Vec<crate::tcp::helper::DateTime>>,
+        begin: Option<u32>,
+        end: Option<u32>,
+    ) -> (Vec<crate::tcp::helper::DateTime>, Vec<u16>) {
+        let mut starts = Vec::new();
+        let out = super::fetch_paged_range(
+            |start| {
+                starts.push(start);
+                let idx = (start / super::BARS_PAGE) as usize;
+                Ok(pages.get(idx).cloned().unwrap_or_default())
+            },
+            |d| *d,
+            begin,
+            end,
+        )
+        .unwrap();
+        (out, starts)
+    }
+
+    /// 重叠页去重 + 末端统一升序 + 不足一页即历史尽头。
+    #[test]
+    fn paged_range_dedup_and_ascending() {
+        let full = super::BARS_PAGE as usize;
+        // 第 2 页前半与第 1 页重叠（翻页偏移重叠），后半为更早一天
+        let mut page1 = minute_page(20260105, full / 2);
+        page1.extend(minute_page(20260102, full / 2));
+        let pages = vec![
+            minute_page(20260105, full),
+            page1,
+            minute_page(20260101, 10),
+        ];
+        let (out, starts) = run_paged(pages, None, None);
+        assert_eq!(starts, vec![0, 800, 1600]);
+        assert_eq!(out.len(), full + full / 2 + 10);
+        assert!(out.windows(2).all(|w| w[0] < w[1]), "应严格升序且无重复");
+        assert_eq!(out.first().unwrap().to_u32(), 20260101);
+        assert_eq!(out.last().unwrap().to_u32(), 20260105);
+    }
+
+    /// `[begin, end]` 闭区间窗口过滤。
+    #[test]
+    fn paged_range_window_filter() {
+        let full = super::BARS_PAGE as usize;
+        let pages = vec![
+            minute_page(20260105, full),
+            minute_page(20260102, full),
+            minute_page(20260101, 10),
+        ];
+        let (out, starts) = run_paged(pages.clone(), Some(20260102), Some(20260102));
+        // 第 2 页最旧 == begin（未早于 begin）→ 继续翻到不足一页的第 3 页
+        assert_eq!(starts, vec![0, 800, 1600]);
+        assert_eq!(out.len(), full);
+        assert!(out.iter().all(|d| d.to_u32() == 20260102));
+
+        let (out, _) = run_paged(pages, None, Some(20260101));
+        assert_eq!(out.len(), 10);
+    }
+
+    /// 乱码年份页：终止翻页，残留由窗口过滤丢弃。
+    #[test]
+    fn paged_range_garbage_year_stops() {
+        let full = super::BARS_PAGE as usize;
+        let pages = vec![
+            minute_page(20260105, full),
+            minute_page(20990101, full), // 历史深度耗尽后的乱码日期
+            minute_page(20260101, full), // 不应再被请求
+        ];
+        let (out, starts) = run_paged(pages.clone(), None, Some(20261231));
+        assert_eq!(starts, vec![0, 800]);
+        assert_eq!(out.len(), full);
+        assert!(out.iter().all(|d| d.to_u32() == 20260105));
+
+        // 年份早于 2000 同样视为乱码
+        let pages = vec![minute_page(20260105, full), minute_page(19040101, full)];
+        let (out, starts) = run_paged(pages, Some(20260101), None);
+        assert_eq!(starts, vec![0, 800]);
+        assert_eq!(out.len(), full);
+    }
+
+    /// 页内最旧一根早于 `begin` 时停止翻页。
+    #[test]
+    fn paged_range_stops_when_oldest_before_begin() {
+        let full = super::BARS_PAGE as usize;
+        let pages = vec![
+            minute_page(20260105, full),
+            minute_page(20251230, full),
+            minute_page(20251229, full), // 不应再被请求
+        ];
+        let (out, starts) = run_paged(pages, Some(20260101), None);
+        assert_eq!(starts, vec![0, 800]);
+        assert_eq!(out.len(), full);
+        assert!(out.iter().all(|d| d.to_u32() == 20260105));
+    }
+
+    /// 页数上限兜底 + 拉取错误原样上抛。
+    #[test]
+    fn paged_range_page_cap_and_error() {
+        let full = super::BARS_PAGE as usize;
+        let mut calls = 0usize;
+        let out = super::fetch_paged_range(
+            |_start| {
+                calls += 1;
+                // 每页一个不同的日期，永远满页
+                Ok(minute_page(20260101 + calls as u32, full))
+            },
+            |d| *d,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(calls, super::MAX_BARS_PAGES);
+        assert_eq!(out.len(), full * super::MAX_BARS_PAGES);
+
+        let err = super::fetch_paged_range(
+            |start| {
+                if start == 0 {
+                    Ok(minute_page(20260105, full))
+                } else {
+                    Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "boom"))
+                }
+            },
+            |d: &crate::tcp::helper::DateTime| *d,
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
     }
 }

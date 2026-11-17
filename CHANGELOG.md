@@ -1,5 +1,22 @@
 # Changelog
 
+## 未发布
+
+### rustdx-complete
+
+- K 线 / 指数 K 线实现严格的 `Tdx::try_parse`：响应体不足 2 字节，或实际解析根数少于 min(声明数, 请求数)（实盘出现过只有 `20 03` 两字节的响应）时返回 `InvalidData`，由连接层按配置重连/换服务器，不再被当成「历史尽头」的空结果；声明 0 根（`00 00`）仍是合法的空结果。出错时不保留部分数据。
+- K 线 / 指数 K 线的变长整数统一使用带截断与溢出保护的 `helper::price_checked`，价格差值以 i64 累加；畸形数据不再 panic。旧入口 `parse` 改为忽略 `try_parse` 的错误（畸形响应得到空数据，而非部分数据）。
+- 连接池去掉按下标归还的槽位：清理过期空闲连接后归还不再错位或泄漏名额；建连在锁外进行，`k_batch` / `bars_batch` 的多连接真正并行建立；`close()` 之后归还的连接直接丢弃。
+- `k_batch` / `bars_batch`、`bars_range` / `index_bars_range` 的重复实现合并为通用的批量执行器与翻页函数（行为不变）。
+- 连接池的联网单元测试受 `RUSTDX_SKIP_INTEGRATION_TESTS` 控制，联网的文档测试改为 `no_run`。
+
+### rustdx-cli
+
+- 修复日线完整包续传损坏：下载先写入 `hsjday.zip.part`，完成后原子改名；仅当 `.part` 记录的来源身份（URL / ETag / Last-Modified / 大小）与服务器一致时才续传，否则从头下载。此前服务器文件更新后会把新文件尾部追加到旧 zip 上，或因 416 连续失败进入交互提示。已知大小时校验下载字节数。
+- `--table` 必须是 `库名.表名`（仅字母、数字、下划线），不合法时报错而非 panic；修正传给 `mongoimport --collection` 的表名带前导 `.` 的问题。
+- 复权因子查询改走 ClickHouse HTTP（与写入共用 `CLICKHOUSE_URL/USER/PASSWORD`），不再依赖本机 `clickhouse-client`。
+- `mongoimport` 失败、xlsx 股票列表含空单元格或列越界时返回错误/跳过该行，不再 panic。
+
 ## v1.11.2 (2026-11-17)
 
 - 对照 rainx/pytdx `2857fdad08534533610bd2aeca387f760c4baa42`，补齐服务器时间的第二种编码分支，修复成交额高位为 1 时的无符号指数提取。
