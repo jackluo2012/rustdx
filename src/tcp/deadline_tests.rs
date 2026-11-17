@@ -16,7 +16,7 @@ fn listen(script: impl FnOnce(TcpStream) + Send + 'static) -> (SocketAddr, threa
 }
 
 fn handshake(stream: &mut TcpStream) {
-    for pack in [PACK1, PACK2, PACK3] {
+    for &pack in HANDSHAKE {
         let mut input = vec![0; pack.len()];
         stream.read_exact(&mut input).unwrap();
         assert_eq!(input, pack);

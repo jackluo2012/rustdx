@@ -429,7 +429,7 @@ pub struct PoolStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tcp::{PACK1, PACK2, PACK3, TcpConfig};
+    use crate::tcp::{HANDSHAKE, TcpConfig};
     use std::io::{Read, Write};
     use std::net::{SocketAddr, TcpListener};
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -443,7 +443,7 @@ mod tests {
         false
     }
 
-    /// 本地假行情服务器：接受任意数量的连接，完成三个握手包后保持连接不断开
+    /// 本地假行情服务器：接受任意数量的连接，完成握手后保持连接不断开
     fn fake_server() -> SocketAddr {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
@@ -451,7 +451,7 @@ mod tests {
             let mut alive = Vec::new();
             for stream in listener.incoming() {
                 let mut stream = stream.unwrap();
-                for pack in [PACK1, PACK2, PACK3] {
+                for &pack in HANDSHAKE {
                     let mut request = vec![0; pack.len()];
                     stream.read_exact(&mut request).unwrap();
                     stream.write_all(&[0; 16]).unwrap();

@@ -26,7 +26,7 @@ fn server_with_lengths(
         stream
             .set_read_timeout(Some(Duration::from_secs(2)))
             .unwrap();
-        for pack in [PACK1, PACK2, PACK3] {
+        for &pack in HANDSHAKE {
             let mut request = vec![0; pack.len()];
             stream.read_exact(&mut request).unwrap();
             assert_eq!(request, pack);
@@ -132,7 +132,7 @@ fn pinned_config_reconnects_to_the_same_server() {
             stream
                 .set_read_timeout(Some(Duration::from_secs(2)))
                 .unwrap();
-            for pack in [PACK1, PACK2, PACK3] {
+            for &pack in HANDSHAKE {
                 let mut request = vec![0; pack.len()];
                 stream.read_exact(&mut request).unwrap();
                 stream.write_all(&[0; 16]).unwrap();
@@ -272,4 +272,35 @@ fn zero_retry_attempts_is_an_input_error() {
         std::io::ErrorKind::InvalidInput
     );
     handle.join().unwrap();
+}
+
+/// 回归：握手只发 PACK1 + PACK2。发送 PACK3 后服务端会掐断行情类权限
+/// （K 线只回 `20 03`、行情/逐笔回 0 条），实测去掉后立即恢复。
+#[test]
+fn handshake_sends_only_first_two_packs() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut received = Vec::new();
+        for &pack in HANDSHAKE {
+            let mut request = vec![0; pack.len()];
+            stream.read_exact(&mut request).unwrap();
+            received.extend_from_slice(&request);
+            stream.write_all(&[0; 16]).unwrap();
+        }
+        // 客户端握手完成后即断开：之后不应再有任何字节（尤其是 PACK3）
+        stream.read_to_end(&mut received).unwrap();
+        received
+    });
+    let config = TcpConfig {
+        timeout: Duration::from_secs(1),
+        ip: Some(addr),
+        ..Default::default()
+    };
+    drop(Tcp::with_config(&config).unwrap());
+    assert_eq!(handle.join().unwrap(), [PACK1, PACK2].concat());
 }
