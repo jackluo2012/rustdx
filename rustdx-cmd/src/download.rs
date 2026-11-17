@@ -180,7 +180,9 @@ fn download(url: &str, dest: &Path) -> Result<()> {
         }
         206 => start = done,
         200 => {}
-        s => bail!("HTTP {s}"),
+        s => {
+            bail!("HTTP {s}");
+        }
     }
 
     let mut out = if start > 0 {
