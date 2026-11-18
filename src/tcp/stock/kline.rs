@@ -144,6 +144,9 @@ impl<'a> Tdx for Kline<'a> {
     /// 严格解析：畸形响应返回 [`std::io::ErrorKind::InvalidData`]，
     /// 由连接层按配置重连/换服务器重试。
     ///
+    /// 指数代码也可以走本命令：服务器按指数格式回应时会自动识别（结果不含
+    /// 涨跌家数，需要时用 [`IndexKline`](super::IndexKline)）。
+    ///
     /// - 响应体不足 2 字节（连记录数都没有）→ 错误；
     /// - 实际解析出的记录数 < min(响应头声明数, 请求数)（记录被截断，或声明
     ///   有数据却没有数据体，实盘出现过只有 `20 03` 两字节的响应）→ 错误；
@@ -162,13 +165,23 @@ impl<'a> Tdx for Kline<'a> {
         // 声明数多于请求数时只取请求的根数。
         let expected = declared.min(self.count as usize);
 
-        // 价格字段是 varint（1~5 字节不定长），无法按固定步长预算，只能逐字段安全读取。
-        let (mut pos, mut base) = (2usize, 0i64);
+        // 指数代码走本命令时，服务器按指数格式回应：每条记录多 4 字节（涨跌家数）。
+        // 按股票格式读会从第二条起错位，得到看似合理的错误数字。判别依据：
+        // 正确的格式恰好读完整个响应（实测股票/基金/债券/指数无一例外）。
+        let (stock, stock_end) = read_bars(v, self.category, declared, 0);
+        let exact = |bars: &[BarHead], end: usize| bars.len() == declared && end == v.len();
+        let (mut bars, index_layout) = if exact(&stock, stock_end) {
+            (stock, false)
+        } else {
+            let (index, index_end) = read_bars(v, self.category, declared, 4);
+            if exact(&index, index_end) { (index, true) } else { (stock, false) }
+        };
+        bars.truncate(expected);
+        let kind = super::price_kind(self.market, self.code);
+
+        let mut base = 0i64;
         let mut data = Vec::with_capacity(expected);
-        while data.len() < expected {
-            let Some(bar) = bar_head(v, &mut pos, self.category) else {
-                break;
-            };
+        for bar in bars {
             let [open, close, high, low] = bar.prices;
             base += open;
             data.push(KlineData { dt: bar.dt, code: self.code,
@@ -176,7 +189,7 @@ impl<'a> Tdx for Kline<'a> {
                                   close:  real_price(close, base),
                                   high:   real_price(high, base),
                                   low:    real_price(low, base),
-                                  vol:    vol_amount(bar.vol as i32),
+                                  vol:    vol_in_hands(vol_amount(bar.vol as i32), self.category, index_layout, kind),
                                   amount: vol_amount(bar.amount as i32) });
             base += close;
         }
@@ -203,8 +216,10 @@ pub struct KlineData<'d> {
     pub close: f64,
     pub high: f64,
     pub low: f64,
-    /// 成交量，单位：手（实测与行情快照的累计成交量一致；指数、债券的口径
-    /// 是行情的 1/100）
+    /// 成交量，单位：手，与行情快照的累计成交量口径一致。协议里的原始单位随
+    /// 周期和品种变化（分钟线是股、指数与债券的日线是百手），解析时已统一换算。
+    /// 例外：**指数的分钟线没有成交量**，此字段是成交额的百分之一。
+    /// 日线不含盘后成交。
     pub vol: f64,
     /// 成交额，单位：元
     pub amount: f64,
@@ -282,6 +297,53 @@ pub(super) fn read_u32(v: &[u8], pos: &mut usize) -> Option<u32> {
     let bytes = v.get(*pos..pos.checked_add(4)?)?;
     *pos += 4;
     Some(u32::from_le_bytes(bytes.try_into().ok()?))
+}
+
+/// 把协议里的原始成交量统一换算为手（与行情快照、分时、逐笔一致）。
+///
+/// 原始单位随周期与品种变化（2026-11-18 盘中实测：各周期当日成交量之和
+/// 对比行情快照的累计成交量）：
+///
+/// | 周期 | 股票、基金 | 债券 | 指数 |
+/// |---|---|---|---|
+/// | 日/周/月/季/年（9、5、6、10、11） | 手 | 百手 | 百手 |
+/// | 分钟线（0~3、7、8）与周期 4 | 股 | 手 | 见下 |
+///
+/// 指数的分钟线没有成交量：该字段在协议里是**成交额的百分之一**，无法换算，
+/// 原样返回；指数的周期 4 是手。月/季/年按日线同族处理，未单独实测。
+pub(super) fn vol_in_hands(
+    raw: f64,
+    category: u16,
+    index_layout: bool,
+    kind: super::PriceKind,
+) -> f64 {
+    let day_family = matches!(category, 5 | 6 | 9 | 10 | 11);
+    let bond = kind == super::PriceKind::Bond;
+    match (day_family, index_layout || bond) {
+        (true, true) => raw * 100., // 百手 → 手
+        (true, false) => raw,
+        (false, true) => raw, // 债券已是手；指数分钟线无成交量，原样返回
+        (false, false) => raw / 100., // 股 → 手
+    }
+}
+
+/// 从响应体第 2 字节起读取最多 `n` 条记录，每条记录尾部跳过 `extra` 字节
+/// （股票 0、指数 4）。返回已读出的记录与结束位置；截断时提前停止。
+pub(super) fn read_bars(v: &[u8], category: u16, n: usize, extra: usize) -> (Vec<BarHead>, usize) {
+    let mut pos = 2usize;
+    let mut bars = Vec::with_capacity(n.min(800));
+    while bars.len() < n {
+        let mut next = pos;
+        let Some(bar) = bar_head(v, &mut next, category) else {
+            break;
+        };
+        let Some(end) = next.checked_add(extra).filter(|end| *end <= v.len()) else {
+            break;
+        };
+        pos = end;
+        bars.push(bar);
+    }
+    (bars, pos)
 }
 
 /// 逐字段安全读取一条记录的公共前缀；截断或 varint 溢出时返回 None。
@@ -505,5 +567,70 @@ mod tests {
         let mut day = Kline::new(0, "000001", 9, 0, 1);
         day.try_parse(body(2, &[&BAR, &BAR])).unwrap();
         assert_eq!(day.data.len(), 1);
+    }
+
+    /// 指数代码走股票 K 线命令时，服务器按指数格式回应（每条多 4 字节）。
+    /// 必须识别出来：否则从第二条起错位，得到看似合理的错误数字。
+    #[test]
+    fn index_layout_is_detected_by_exact_consumption() {
+        const REC: [u8; 21] = [
+            0xeb, 0x64, 0x34, 0x01, 0xb4, 0x9a, 0x02, 0xe4, 0x06, 0x9c, 0x03, 0xc2, 0x07, 0xe8,
+            0x6f, 0xa8, 0x49, 0x59, 0xf7, 0x12, 0x4f,
+        ];
+        let mut later = REC;
+        later[0] = 0xec; // 次日，价格差值相同
+        let build = |extra: &[u8]| {
+            let mut v = vec![2, 0];
+            for rec in [&REC, &later] {
+                v.extend_from_slice(rec);
+                v.extend_from_slice(extra);
+            }
+            v
+        };
+
+        // 股票格式：成交量不变
+        let mut stock = Kline::new(1, "600000", 9, 0, 2);
+        stock.try_parse(build(&[])).unwrap();
+        // 指数格式：两条记录的价格与股票格式逐项相同，成交量由百手换算为手
+        let mut index = Kline::new(1, "000001", 9, 0, 2);
+        index.try_parse(build(&[0x2c, 0x01, 0xc8, 0x00])).unwrap();
+        assert_eq!(index.data.len(), 2);
+        for (a, b) in stock.data.iter().zip(&index.data) {
+            assert_eq!(a.dt, b.dt);
+            assert_eq!(
+                (a.open, a.close, a.high, a.low),
+                (b.open, b.close, b.high, b.low)
+            );
+            assert_eq!(a.amount, b.amount);
+            assert_eq!(a.vol * 100., b.vol);
+        }
+        assert_eq!(stock.data[0].vol, 1379837.0);
+        // 第二条没有错位：开盘 = 前一条 (open + close 差值) 再加自身 open 差值
+        assert_eq!(index.data[1].open, (18100 - 420 + 18100) as f64 / 1000.);
+
+        // 债券按股票格式，成交量同样由百手换算为手
+        let mut bond = Kline::new(1, "113042", 9, 0, 2);
+        bond.try_parse(build(&[])).unwrap();
+        assert_eq!(bond.data[0].vol, 137983700.0);
+    }
+
+    /// 原始成交量单位随周期与品种变化，统一换算为手。
+    #[test]
+    fn vol_units_are_unified_to_hands() {
+        use crate::tcp::stock::PriceKind::{Bond, Fund, Stock};
+        // 日线同族：股票/基金是手，债券与指数是百手
+        for cat in [9, 5, 6, 10, 11] {
+            assert_eq!(vol_in_hands(500., cat, false, Stock), 500.);
+            assert_eq!(vol_in_hands(500., cat, false, Fund), 500.);
+            assert_eq!(vol_in_hands(500., cat, false, Bond), 50000.);
+            assert_eq!(vol_in_hands(500., cat, true, Stock), 50000.);
+        }
+        // 分钟线与周期 4：股票/基金是股，债券是手；指数原样返回
+        for cat in [0, 1, 2, 3, 7, 8, 4] {
+            assert_eq!(vol_in_hands(50451600., cat, false, Stock), 504516.);
+            assert_eq!(vol_in_hands(50451600., cat, false, Fund), 504516.);
+            assert_eq!(vol_in_hands(500., cat, false, Bond), 500.);
+            assert_eq!(vol_in_hands(500., cat, true, Stock), 500.);
+        }
     }
 }

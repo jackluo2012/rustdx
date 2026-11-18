@@ -107,7 +107,10 @@ impl PriceKind {
 /// | 深 (0) | `10`/`11`/`12`/`13`（国债、可转债、逆回购） | [`PriceKind::Bond`] |
 /// | 其余 | 股票、指数（沪 `000`/`880`、深 `399`）、深市 B 股 `200`、北交所 | [`PriceKind::Stock`] |
 ///
-/// 其中沪 `01`/`02`、`20`（除 204 外）与深 `11`、`18` 是按同族前缀归类，未逐一实测。
+/// 实测覆盖：沪 `018`/`019`、`110`/`111`/`113`/`118`/`132`、`204`、`50x`~`58x`、`900`；
+/// 深 `117`/`123`/`127`/`128`/`131`、`158`/`159`、`160`~`169`、`180`/`181`。
+/// 同族里当日无成交、未能比对的前缀（如沪 `010`/`020`/`12x`、深 `10x`/`110`~`116`）
+/// 按所在族归类。
 ///
 /// ## 示例
 /// ```
@@ -133,7 +136,8 @@ pub fn price_kind(market: u16, code: &str) -> PriceKind {
 
 /// 获取市场全部证券列表（自动按 1000 条分页聚合）。
 ///
-/// 对应 mootdx 的 `stocks(market)`。
+/// 对应 mootdx 的 `stocks(market)`。仅支持沪深（market 0/1）；北交所返回
+/// [`std::io::ErrorKind::Unsupported`]。
 ///
 /// ## 示例
 /// ```ignore
@@ -145,6 +149,14 @@ pub fn price_kind(market: u16, code: &str) -> PriceKind {
 /// ```
 pub fn stocks(tcp: &mut crate::tcp::Tcp, market: u16) -> crate::Result<Vec<SecurityListData>> {
     use crate::tcp::Tdx;
+    // 北交所（market 2）：数量接口有回应，但列表请求服务器不回应（2026-11-18 实测
+    // 4 台服务器一致），与其等到超时再重试，不如立即说明。
+    if market == 2 {
+        return Err(crate::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "行情服务器不提供北交所（market=2）的证券列表",
+        )));
+    }
     let count = {
         let mut sc = crate::tcp::basic::SecurityCount::new(market);
         *sc.recv_parsed(tcp)?

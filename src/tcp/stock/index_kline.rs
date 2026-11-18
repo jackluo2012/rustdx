@@ -125,7 +125,12 @@ impl<'a> Tdx for IndexKline<'a> {
                 close: real_price(close, base),
                 high: real_price(high, base),
                 low: real_price(low, base),
-                vol: vol_amount(bar.vol as i32),
+                vol: super::kline::vol_in_hands(
+                    vol_amount(bar.vol as i32),
+                    self.category,
+                    true,
+                    super::PriceKind::Stock,
+                ),
                 amount: vol_amount(bar.amount as i32),
                 up_count: u16::from_le_bytes([u0, u1]),
                 down_count: u16::from_le_bytes([d0, d1]),
@@ -161,7 +166,8 @@ pub struct IndexKlineData<'d> {
     pub close: f64,
     pub high: f64,
     pub low: f64,
-    /// 成交量
+    /// 成交量，单位：手，与行情快照口径一致（日线在协议里是百手，解析时已换算）。
+    /// 例外：**分钟线没有成交量**，此字段是成交额的百分之一。
     pub vol: f64,
     /// 成交额
     pub amount: f64,
@@ -300,7 +306,7 @@ mod tests {
             (bar.open, bar.close, bar.high, bar.low),
             (18.1, 17.68, 18.32, 17.65)
         );
-        assert_eq!((bar.vol, bar.amount), (1379837.0, 2465683712.0));
+        assert_eq!((bar.vol, bar.amount), (137983700.0, 2465683712.0));
         assert_eq!((bar.up_count, bar.down_count), (300, 200));
     }
 

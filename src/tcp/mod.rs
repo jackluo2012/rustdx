@@ -127,7 +127,7 @@ impl Tcp {
     fn with_config_inner(config: &TcpConfig, deadline: Option<Instant>) -> Result<Self> {
         match config.ip {
             Some(addr) => Self::connect_addr(&addr, config, deadline),
-            None => Self::with_servers_inner(config, &ip::STOCK_IP, deadline),
+            None => Self::with_servers_inner(config, &ip::preferred_first(), deadline),
         }
     }
 
@@ -169,6 +169,7 @@ impl Tcp {
             candidate.ip = Some(*addr);
             match Self::connect_addr(addr, &candidate, scan_deadline) {
                 Ok(mut tcp) => {
+                    ip::remember(addr);
                     tcp.servers = servers.to_vec();
                     tcp.deadline = deadline; // 隐式总时限只约束建连，不带入后续请求
                     return Ok(tcp);
