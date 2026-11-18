@@ -103,7 +103,7 @@ impl Tcp {
     /// 连接到行情服务器并完成握手（已发送 [`HANDSHAKE`] 握手包）。
     ///
     /// 按 [`ip::STOCK_IP`] 列表顺序依次尝试（故障转移），直到某台连接成功；
-    /// 全部失败时返回最后一个错误。
+    /// 全部失败、或整轮超过 3 倍 `timeout`（默认 15 秒）时返回最后一个错误。
     ///
     /// 超时默认 5 秒，可用 [`Tcp::with_config`] 自定义。
     pub fn new() -> Result<Self> {
@@ -152,14 +152,25 @@ impl Tcp {
         servers: &[SocketAddr],
         deadline: Option<Instant>,
     ) -> Result<Self> {
+        // 没有显式截止时间时，整轮故障转移也要有上限：否则网络黑洞（连接不被
+        // 拒绝、只是不回应）下要把每台服务器都等满一个超时，40 台就是几分钟。
+        let scan_deadline = deadline.or_else(|| {
+            Instant::now().checked_add(config.timeout.saturating_mul(FAILOVER_BUDGET_TIMEOUTS))
+        });
         let mut last_err = None;
         for addr in servers {
-            operation_timeout(config.timeout, deadline)?;
+            if let Err(e) = operation_timeout(config.timeout, scan_deadline) {
+                if deadline.is_some() || last_err.is_none() {
+                    return Err(e); // 显式截止时间已到，或超时配置本身非法
+                }
+                break; // 隐式总时限用尽：返回最后一台的连接错误
+            }
             let mut candidate = config.clone();
             candidate.ip = Some(*addr);
-            match Self::connect_addr(addr, &candidate, deadline) {
+            match Self::connect_addr(addr, &candidate, scan_deadline) {
                 Ok(mut tcp) => {
                     tcp.servers = servers.to_vec();
+                    tcp.deadline = deadline; // 隐式总时限只约束建连，不带入后续请求
                     return Ok(tcp);
                 }
                 Err(e) => last_err = Some(e),
@@ -564,6 +575,10 @@ fn operation_timeout(timeout: Duration, deadline: Option<Instant>) -> Result<Dur
 
 /// 默认的超时值。
 pub const TIMEOUT: Duration = Duration::from_secs(5);
+
+/// 未指定截止时间时，一轮故障转移（建连 + 握手）的总时限，以 `timeout` 的倍数计。
+/// 默认配置下即 15 秒：足够跳过两台不回应的服务器再连上第三台。
+const FAILOVER_BUDGET_TIMEOUTS: u32 = 3;
 
 /// 快速引入 tcpstream（按服务器列表故障转移），设置 [`TIMEOUT`] 超时。
 pub fn tcpstream() -> Result<(TcpStream, BufTcp, [u8; RECV_SIZE])> {

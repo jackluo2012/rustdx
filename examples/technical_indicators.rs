@@ -4,7 +4,7 @@
 //!
 //! 运行方式：
 //! ```bash
-//! cargo run --example test_technical_indicators
+//! cargo run --example technical_indicators
 //! ```
 
 use rustdx_complete::indicators::*;

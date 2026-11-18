@@ -131,7 +131,8 @@ impl<'a> Tdx for HistoryTransaction<'a> {
             };
 
             last_price += price_raw;
-            let price = last_price as f64 / 100.0;
+            let price =
+                last_price as f64 / super::price_kind(self.market, self.code).tick_divisor();
 
             self.data.push(super::transaction::TransactionData {
                 time: format!("{hour:02}:{minute:02}"),

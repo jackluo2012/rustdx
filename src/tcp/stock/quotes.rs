@@ -126,7 +126,7 @@ impl<'a> Tdx for SecurityQuotes<'a> {
     /// ## 响应格式（与 pytdx GetSecurityQuotesCmd.parseResponse 一致）
     /// - 前2字节：跳过
     /// - 接下来2字节：股票数量（小端 u16）
-    /// - 之后每只股票的字段见 [`parse_quote`]。
+    /// - 之后每只股票的字段见内部函数 `parse_quote`。
     fn parse(&mut self, v: Vec<u8>) {
         // The legacy infallible entry point rejects the whole invalid batch.
         let _ = self.try_parse(v);
@@ -157,6 +157,11 @@ impl<'a> Tdx for SecurityQuotes<'a> {
                 .iter()
                 .position(|(m, code)| *m == market && *code == quote.code)
             else {
+                // 请求里有无效代码（退市、写错）时，服务器回一条全零的占位记录
+                // （身份是别的证券）。丢弃它，不能让一个无效代码拖垮整批。
+                if quote.is_placeholder() {
+                    continue;
+                }
                 return Err(invalid_quote("unexpected quote identity or multiplicity"));
             };
             remaining.swap_remove(index);
@@ -219,7 +224,8 @@ impl<'a> QuoteCursor<'a, '_> {
 
 fn parse_quote(data: &[u8], pos: &mut usize) -> std::io::Result<QuoteData> {
     let mut cursor = QuoteCursor { data, pos };
-    cursor.take(1)?; // market, validated against the requested identity by caller
+    // market：调用方还会用它校验身份；这里用于判定报价精度
+    let market = u16::from(cursor.take(1)?[0]);
     let code_bytes = cursor.take(6)?;
     if !code_bytes.iter().all(u8::is_ascii_digit) {
         return Err(invalid_quote("invalid stock code"));
@@ -295,12 +301,14 @@ fn parse_quote(data: &[u8], pos: &mut usize) -> std::io::Result<QuoteData> {
     let _active2 = cursor.u16()?;
 
     // 按 pytdx _cal_price 公式还原真实价格：`(price_raw + diff) / 100`
+    // 报价精度随品种不同（基金三位小数、债券更细），见 [`super::price_kind`]
+    let div = super::price_kind(market, &code).quote_divisor();
     let base = price_raw as f64;
-    let price = base / 100.0;
-    let last_close = (base + last_close_diff as f64) / 100.0;
-    let open = (base + open_diff as f64) / 100.0;
-    let high = (base + high_diff as f64) / 100.0;
-    let low = (base + low_diff as f64) / 100.0;
+    let price = base / div;
+    let last_close = (base + last_close_diff as f64) / div;
+    let open = (base + open_diff as f64) / div;
+    let high = (base + high_diff as f64) / div;
+    let low = (base + low_diff as f64) / div;
 
     // 涨跌额与涨跌幅自行计算（协议不直接提供）
     let change = price - last_close;
@@ -327,24 +335,24 @@ fn parse_quote(data: &[u8], pos: &mut usize) -> std::io::Result<QuoteData> {
         speed: reversed_bytes9 as f64 / 100.0,
         servertime: servertime_string(i64::from(reversed_bytes0) + i64::from(price_raw)),
         servertime_raw: reversed_bytes0,
-        bid1: (base + bid1 as f64) / 100.0,
-        ask1: (base + ask1 as f64) / 100.0,
+        bid1: (base + bid1 as f64) / div,
+        ask1: (base + ask1 as f64) / div,
         bid1_vol: bid1_vol as f64,
         ask1_vol: ask1_vol as f64,
-        bid2: (base + bid2 as f64) / 100.0,
-        ask2: (base + ask2 as f64) / 100.0,
+        bid2: (base + bid2 as f64) / div,
+        ask2: (base + ask2 as f64) / div,
         bid2_vol: bid2_vol as f64,
         ask2_vol: ask2_vol as f64,
-        bid3: (base + bid3 as f64) / 100.0,
-        ask3: (base + ask3 as f64) / 100.0,
+        bid3: (base + bid3 as f64) / div,
+        ask3: (base + ask3 as f64) / div,
         bid3_vol: bid3_vol as f64,
         ask3_vol: ask3_vol as f64,
-        bid4: (base + bid4 as f64) / 100.0,
-        ask4: (base + ask4 as f64) / 100.0,
+        bid4: (base + bid4 as f64) / div,
+        ask4: (base + ask4 as f64) / div,
         bid4_vol: bid4_vol as f64,
         ask4_vol: ask4_vol as f64,
-        bid5: (base + bid5 as f64) / 100.0,
-        ask5: (base + ask5 as f64) / 100.0,
+        bid5: (base + bid5 as f64) / div,
+        ask5: (base + ask5 as f64) / div,
         bid5_vol: bid5_vol as f64,
         ask5_vol: ask5_vol as f64,
     })
@@ -395,6 +403,13 @@ fn servertime_layout(s: &str, hour_len: usize, frac_len: usize) -> Option<String
     let millis = if frac_len == 2 { frac * 10 } else { frac };
     (hour <= 23 && minute < 60 && second < 60)
         .then(|| format!("{hour:02}:{minute:02}:{second:02}.{millis:03}"))
+}
+
+impl QuoteData {
+    /// 服务器为无效代码返回的全零占位记录。
+    fn is_placeholder(&self) -> bool {
+        self.price == 0.0 && self.last_close == 0.0 && self.vol == 0.0 && self.servertime_raw == 0
+    }
 }
 
 /// 股票实时行情数据（完整五档买卖盘，字段语义与 pytdx get_security_quotes 对齐）。
@@ -672,6 +687,86 @@ mod tests {
             // Any byte sequence is safe; successfully parsed unknown tail fields are allowed.
             let _ = parser.try_parse(body);
         }
+    }
+
+    /// 按给定字段拼一条行情记录（其余字段为 0）。
+    fn quote_record(market: u8, code: &str, price: i32, last_close_diff: i32) -> Vec<u8> {
+        fn varint(n: i32) -> Vec<u8> {
+            let mut v = n.unsigned_abs();
+            let mut out = vec![(v & 63) as u8 | if n < 0 { 64 } else { 0 }];
+            v >>= 6;
+            while v > 0 {
+                *out.last_mut().unwrap() |= 128;
+                out.push((v & 127) as u8);
+                v >>= 7;
+            }
+            out
+        }
+        let mut b = vec![market];
+        b.extend_from_slice(code.as_bytes());
+        b.extend_from_slice(&[0, 0]); // active1
+        for n in [price, last_close_diff, 0, 0, 0, 0, -price, 0, 0] {
+            b.extend(varint(n));
+        }
+        b.extend_from_slice(&[0; 4]); // amount
+        b.extend(std::iter::repeat_n(0u8, 4 + 20)); // s_vol/b_vol/rev2/rev3 + 五档
+        b.extend_from_slice(&[0; 2]); // rev4
+        b.extend_from_slice(&[0; 4]); // rev5~8
+        b.extend_from_slice(&[0; 4]); // rev9 + active2
+        b
+    }
+
+    fn quote_body(records: &[Vec<u8>]) -> Vec<u8> {
+        let mut body = vec![0, 0];
+        body.extend_from_slice(&(records.len() as u16).to_le_bytes());
+        records.iter().for_each(|r| body.extend_from_slice(r));
+        body
+    }
+
+    /// 报价精度随品种不同：同样的原始整数，基金是三位小数，债券更细。
+    /// 数值取自 2026-11-18 实盘（K 线收盘价为基准）。
+    #[test]
+    fn price_scale_by_security_kind() {
+        let cases = [
+            (1u8, "600000", 1074, 10.74),    // 股票
+            (1, "510020", 3750, 3.75),       // ETF
+            (0, "159001", 99999, 99.999),    // 货币基金
+            (1, "900901", 506, 0.506),       // 沪市 B 股
+            (0, "200012", 92, 0.92),         // 深市 B 股（两位小数）
+            (1, "113042", 1127820, 112.782), // 可转债
+            (1, "204001", 12750, 1.275),     // 逆回购
+            (1, "000001", 358883, 3588.83),  // 上证指数
+        ];
+        for (market, code, raw, want) in cases {
+            let mut quotes = SecurityQuotes::new(vec![(market as u16, code)]);
+            quotes
+                .try_parse(quote_body(&[quote_record(market, code, raw, -10)]))
+                .unwrap();
+            let q = &quotes.data[0];
+            assert!((q.price - want).abs() < 1e-9, "{code}: {}", q.price);
+            // 差值字段用同一除数：昨收 = (现价 - 10) / 除数
+            let step = q.price - q.last_close;
+            assert!((step * raw as f64 / q.price - 10.0).abs() < 1e-6, "{code}");
+        }
+    }
+
+    /// 无效代码的全零占位记录被丢弃，不影响同批其它证券。
+    #[test]
+    fn placeholder_for_invalid_code_is_skipped() {
+        let body = quote_body(&[
+            quote_record(1, "600000", 1074, -12),
+            quote_record(1, "600839", 0, 0), // 服务器对无效代码 123456 的回应
+        ]);
+        let mut quotes = SecurityQuotes::new(vec![(1, "600000"), (0, "123456")]);
+        quotes.try_parse(body).unwrap();
+        assert_eq!(quotes.data.len(), 1);
+        assert_eq!(quotes.data[0].code, "600000");
+
+        // 身份不符但有真实数据的记录仍然是错误
+        let body = quote_body(&[quote_record(1, "600839", 500, -1)]);
+        let mut quotes = SecurityQuotes::new(vec![(1, "600000")]);
+        assert!(quotes.try_parse(body).is_err());
+        assert!(quotes.data.is_empty());
     }
 
     /// 入参为「原始值 + 现价」。样本来自 2026-11-17 实盘（注释为 原始值 + 现价）。

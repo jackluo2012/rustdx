@@ -5,7 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
-tabled = "0.21"
+tabled = "0.22"
 insta = "1"
 rustdx-complete = { path = "../" }
 rustdx-cli = { path = "../rustdx-cmd" }

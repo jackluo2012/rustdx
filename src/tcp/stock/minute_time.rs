@@ -90,7 +90,7 @@ impl<'a> Tdx for MinuteTime<'a> {
     ///   总量等，实测 29~32 个，随内容浮动，无法正向跳过）
     /// - 最后是 `num × 3` 个数据 varint（每分钟一点：价格增量 / 保留 / 成交量），
     ///   **数据块恰好耗尽到响应末尾** → 正向穷举头部结束位置唯一定位
-    ///   （见 [`locate_data_block`]），已用历史分时（旧协议）交叉验证逐点吻合
+    ///   （见内部函数 `locate_data_block`），已用历史分时（旧协议）交叉验证逐点吻合
     ///
     /// ### 旧协议（pytdx GetMinuteTimeDataCmd.parseResponse）
     /// - 前 2 字节：数据点数量；字节 2-3 跳过；之后每点 3 个 varint
@@ -100,6 +100,7 @@ impl<'a> Tdx for MinuteTime<'a> {
     /// 字节耗尽），异常时返回**空数据**而非垃圾数据。
     fn parse(&mut self, v: Vec<u8>) {
         self.data = Vec::new();
+        let div = super::price_kind(self.market, self.code).quote_divisor();
 
         if v.len() >= 4 {
             let num_points = u16_from_le_bytes(&v, 0) as usize;
@@ -107,7 +108,7 @@ impl<'a> Tdx for MinuteTime<'a> {
             // 新协议：头 11 字节中的 code 与请求一致（市场号在 v[4]，0=深 1=沪）
             let is_new = v.len() >= 11 && v[2..4] == [0, 0] && &v[5..11] == self.code.as_bytes();
             if is_new {
-                if let Some(data) = locate_data_block(&v, num_points) {
+                if let Some(data) = locate_data_block(&v, num_points, div) {
                     self.data = data;
                 }
                 self.response = v;
@@ -115,10 +116,10 @@ impl<'a> Tdx for MinuteTime<'a> {
             }
 
             // 旧协议：头 4 字节（数量 + 跳过）后即数据
-            if let Some((data, end)) = decode_points(&v, 4, num_points) {
+            if let Some((data, end)) = decode_points(&v, 4, num_points, div) {
                 let points_complete = data.len() == num_points;
                 let bytes_consumed = points_complete && end + 8 >= v.len();
-                let prices_valid = data.iter().all(|d| (0.01..=100000.0).contains(&d.price));
+                let prices_valid = data.iter().all(|d| price_plausible(d.price, div));
                 if points_complete && bytes_consumed && prices_valid {
                     self.data = data;
                 }
@@ -155,7 +156,7 @@ pub(crate) use crate::tcp::helper::price_checked;
 /// 多字节 varint 的末续字节），从尾部反向切分不唯一，故正向穷举头部结束
 /// 位置：数据块须恰好读满 `num × 3` 个 varint 且结束于响应末尾，叠加价格
 /// 合理性校验（实测沪深主板多只股票下该解唯一）。
-fn locate_data_block(v: &[u8], num_points: usize) -> Option<Vec<MinuteTimeData>> {
+fn locate_data_block(v: &[u8], num_points: usize, div: f64) -> Option<Vec<MinuteTimeData>> {
     // 收集 offset 11 起全部 varint 的起始字节位置
     let mut starts = Vec::new();
     let mut pos = 11;
@@ -173,8 +174,8 @@ fn locate_data_block(v: &[u8], num_points: usize) -> Option<Vec<MinuteTimeData>>
         return None;
     }
     for &start in &starts[..=starts.len() - need] {
-        if let Some((data, end)) = decode_points(v, start, num_points) {
-            let prices_valid = data.iter().all(|d| (0.01..=100000.0).contains(&d.price));
+        if let Some((data, end)) = decode_points(v, start, num_points, div) {
+            let prices_valid = data.iter().all(|d| price_plausible(d.price, div));
             if end == v.len() && prices_valid {
                 return Some(data);
             }
@@ -183,9 +184,20 @@ fn locate_data_block(v: &[u8], num_points: usize) -> Option<Vec<MinuteTimeData>>
     None
 }
 
+/// 价格合理性校验：按原始整数的口径判断（0.01~100000 个「百分之一」单位），
+/// 与报价精度无关，保持数据块定位的判别力不变。
+fn price_plausible(price: f64, div: f64) -> bool {
+    (0.01..=100000.0).contains(&(price * div / 100.0))
+}
+
 /// 从 `pos` 起解码 `num` 个分时点（每点 3 个 varint：价格增量 / 保留 / 成交量），
 /// 价格按增量累加还原，返回数据与结束位置；任一字节越界返回 `None`。
-fn decode_points(v: &[u8], pos: usize, num: usize) -> Option<(Vec<MinuteTimeData>, usize)> {
+fn decode_points(
+    v: &[u8],
+    pos: usize,
+    num: usize,
+    div: f64,
+) -> Option<(Vec<MinuteTimeData>, usize)> {
     let mut pos = pos;
     let mut out = Vec::with_capacity(num.min(241));
     let mut last_price = 0i32;
@@ -195,7 +207,7 @@ fn decode_points(v: &[u8], pos: usize, num: usize) -> Option<(Vec<MinuteTimeData
         let vol = price_checked(v, &mut pos)?;
         last_price = last_price.checked_add(price_raw)?;
         out.push(MinuteTimeData {
-            price: last_price as f64 / 100.0,
+            price: last_price as f64 / div,
             vol,
         });
     }
@@ -250,7 +262,7 @@ mod tests {
         assert!(price_checked(&[255; 5], &mut 0).is_none());
         // Two individually valid i32 values whose cumulative sum overflows.
         let bytes = [191, 255, 255, 255, 15, 0, 0, 1, 0, 0];
-        assert!(decode_points(&bytes, 0, 2).is_none());
+        assert!(decode_points(&bytes, 0, 2, 100.0).is_none());
     }
 
     #[test]
@@ -385,7 +397,7 @@ mod tests {
         v.extend_from_slice(&[0xe4, 0x00, 0x49]); // +100, -9
         v.extend_from_slice(&[0x84, 0x0e, 0x00, 0xa4, 0x01]); // +900, 0, 100
         v.extend_from_slice(&[0x32, 0x00, 0x90, 0x01]); // +50, 0, 80
-        let data = super::locate_data_block(&v, 2).expect("应定位数据块");
+        let data = super::locate_data_block(&v, 2, 100.0).expect("应定位数据块");
         assert_eq!(data.len(), 2);
         assert_eq!(data[0].price, 9.0);
         assert_eq!(data[0].vol, 100);
@@ -399,7 +411,7 @@ mod tests {
         let mut v = vec![0u8; 11];
         v.extend_from_slice(&[0x84, 0x0e, 0x00, 0x64]); // 1 点: +900, 0, 100
         v.extend_from_slice(&[0x32]); // 残留 +50（凑不齐合法价格序列）
-        assert!(super::locate_data_block(&v, 1).is_none());
+        assert!(super::locate_data_block(&v, 1, 100.0).is_none());
     }
 
     /// 点数声明超出实际 varint 数 → None。
@@ -407,7 +419,7 @@ mod tests {
     fn locate_data_block_insufficient_vars() {
         let mut v = vec![0u8; 11];
         v.extend_from_slice(&[0x84, 0x0e, 0x00, 0xa4, 0x01]); // 仅 2 个 varint
-        assert!(super::locate_data_block(&v, 5).is_none());
+        assert!(super::locate_data_block(&v, 5, 100.0).is_none());
     }
 
     /// 截断的响应：点数声明 10 但数据只有 1 点 → 返回空。

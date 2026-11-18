@@ -498,6 +498,8 @@ impl Client {
     }
 
     /// 全部证券列表（mootdx `stocks`），自动分页聚合。
+    ///
+    /// 仅沪深（market 0/1）。北交所（market 2）实测服务器不回应列表请求，会超时。
     pub fn stocks(&mut self, market: u16) -> crate::Result<Vec<SecurityListData>> {
         super::stocks(&mut self.tcp, market).map_err(|e| {
             crate::Error::Io(std::io::Error::other(format!(

@@ -4,7 +4,7 @@
 //!
 //! 运行方式：
 //! ```bash
-//! cargo run --example test_cache
+//! cargo run --example cache
 //! ```
 
 use rustdx_complete::cache::Cache;

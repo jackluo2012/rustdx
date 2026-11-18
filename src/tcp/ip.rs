@@ -59,7 +59,10 @@ pub static STOCK_IP: [SocketAddr; 40] = [
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(47, 107, 228, 47)), 7719),
 ];
 
-/// 依次探测服务器列表，返回可以建立 TCP 连接的地址（保持列表顺序）。
+/// 并发探测服务器列表，返回可以建立 TCP 连接的地址（保持列表顺序）。
+///
+/// 所有服务器同时探测，总耗时约为一个 `timeout`。只验证 TCP 可连，
+/// 不代表能返回行情；需要可靠结果请用 [`check_alive_protocol`]。
 ///
 /// 对应 mootdx 的 `check_server`。结果可用于挑选可用的服务器，
 /// 传给 [`Tcp::with_config`](crate::tcp::Tcp::with_config)。
@@ -76,13 +79,16 @@ pub static STOCK_IP: [SocketAddr; 40] = [
 /// }
 /// ```
 pub fn check_alive(timeout: Duration) -> Vec<SocketAddr> {
-    let mut alive = Vec::with_capacity(STOCK_IP.len());
-    for addr in STOCK_IP.iter() {
-        if tcp_connect_ok(addr, timeout) {
-            alive.push(*addr);
-        }
-    }
-    alive
+    std::thread::scope(|s| {
+        let handles: Vec<_> = STOCK_IP
+            .iter()
+            .map(|addr| s.spawn(move || tcp_connect_ok(addr, timeout).then_some(*addr)))
+            .collect();
+        handles
+            .into_iter()
+            .filter_map(|h| h.join().ok().flatten())
+            .collect()
+    })
 }
 
 /// 探测一台服务器是否可以在超时时间内建立 TCP 连接。

@@ -61,6 +61,76 @@ pub fn market_of(code: &str) -> Option<u16> {
     }
 }
 
+/// 证券的报价精度类别：决定行情、分时、逐笔里价格整数的换算除数。
+///
+/// 协议里这些价格都是整数，但单位随品种不同。只有 K 线统一以千分之一元为
+/// 单位、不受影响；行情快照、分时、逐笔若一律按「分」换算，基金会放大 10 倍、
+/// 债券放大 100 倍（逐笔为 10 倍）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PriceKind {
+    /// 股票、指数、深市 B 股、北交所：两位小数。
+    Stock,
+    /// 基金（ETF / LOF / REIT / 货币基金）与沪市 B 股：三位小数。
+    Fund,
+    /// 债券（可转债、国债、逆回购）。
+    Bond,
+}
+
+impl PriceKind {
+    /// 行情快照、当日/历史分时的价格除数。
+    pub(crate) fn quote_divisor(self) -> f64 {
+        match self {
+            Self::Stock => 100.0,
+            Self::Fund => 1000.0,
+            Self::Bond => 10000.0,
+        }
+    }
+
+    /// 当日/历史逐笔的价格除数（债券在逐笔里比行情少一位）。
+    pub(crate) fn tick_divisor(self) -> f64 {
+        match self {
+            Self::Stock => 100.0,
+            Self::Fund | Self::Bond => 1000.0,
+        }
+    }
+}
+
+/// 按市场与代码前缀判定报价精度类别。
+///
+/// 规则来自 2026-11-18 盘中实测（以 K 线收盘价为基准逐类比对行情/分时/逐笔）：
+///
+/// | 市场 | 前缀 | 类别 |
+/// |---|---|---|
+/// | 沪 (1) | `5`（50x/51x/58x 基金、ETF、REIT）、`900`（B 股） | [`PriceKind::Fund`] |
+/// | 沪 (1) | `1`（110/113/118 可转债等）、`20`（204 逆回购）、`01`/`02`（国债） | [`PriceKind::Bond`] |
+/// | 深 (0) | `15`/`16`/`18`（ETF、LOF、封闭式基金） | [`PriceKind::Fund`] |
+/// | 深 (0) | `10`/`11`/`12`/`13`（国债、可转债、逆回购） | [`PriceKind::Bond`] |
+/// | 其余 | 股票、指数（沪 `000`/`880`、深 `399`）、深市 B 股 `200`、北交所 | [`PriceKind::Stock`] |
+///
+/// 其中沪 `01`/`02`、`20`（除 204 外）与深 `11`、`18` 是按同族前缀归类，未逐一实测。
+///
+/// ## 示例
+/// ```
+/// use rustdx_complete::tcp::stock::{PriceKind, price_kind};
+///
+/// assert_eq!(price_kind(1, "600519"), PriceKind::Stock);
+/// assert_eq!(price_kind(1, "510300"), PriceKind::Fund);
+/// assert_eq!(price_kind(0, "159915"), PriceKind::Fund);
+/// assert_eq!(price_kind(1, "113042"), PriceKind::Bond);
+/// assert_eq!(price_kind(1, "000001"), PriceKind::Stock); // 上证指数
+/// assert_eq!(price_kind(0, "200012"), PriceKind::Stock); // 深市 B 股
+/// ```
+pub fn price_kind(market: u16, code: &str) -> PriceKind {
+    let starts = |prefixes: &[&str]| prefixes.iter().any(|p| code.starts_with(p));
+    match market {
+        1 if starts(&["5", "900"]) => PriceKind::Fund,
+        1 if starts(&["1", "20", "01", "02"]) => PriceKind::Bond,
+        0 if starts(&["15", "16", "18"]) => PriceKind::Fund,
+        0 if starts(&["10", "11", "12", "13"]) => PriceKind::Bond,
+        _ => PriceKind::Stock,
+    }
+}
+
 /// 获取市场全部证券列表（自动按 1000 条分页聚合）。
 ///
 /// 对应 mootdx 的 `stocks(market)`。

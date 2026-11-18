@@ -203,7 +203,8 @@ pub struct KlineData<'d> {
     pub close: f64,
     pub high: f64,
     pub low: f64,
-    /// 成交量，单位：股
+    /// 成交量，单位：手（实测与行情快照的累计成交量一致；指数、债券的口径
+    /// 是行情的 1/100）
     pub vol: f64,
     /// 成交额，单位：元
     pub amount: f64,

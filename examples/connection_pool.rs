@@ -4,7 +4,7 @@
 //!
 //! 运行方式：
 //! ```bash
-//! cargo run --example test_connection_pool
+//! cargo run --example connection_pool
 //! ```
 
 use rustdx_complete::builder::KlineBuilder;
