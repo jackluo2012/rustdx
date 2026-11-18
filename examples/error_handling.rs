@@ -4,7 +4,7 @@
 //!
 //! 运行方式：
 //! ```bash
-//! cargo run --example test_error_handling
+//! cargo run --example error_handling
 //! ```
 
 use rustdx_complete::error::{Error, IndicatorError, Result, TcpError, ValidationError};

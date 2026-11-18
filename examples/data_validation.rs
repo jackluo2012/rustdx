@@ -4,7 +4,7 @@
 //!
 //! 运行方式：
 //! ```bash
-//! cargo run --example test_data_validation
+//! cargo run --example data_validation
 //! ```
 
 use rustdx_complete::tcp::stock::{FinanceInfo, Kline, validator::*};

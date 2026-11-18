@@ -165,8 +165,16 @@ impl Fq {
     }
 
     pub fn no_gbbq(days: impl ExactSizeIterator<Item = Day> + Clone) -> Option<Vec<Fq>> {
-        let mut preclose = days.clone().next()?.close;
-        let mut factor = 1.;
+        let preclose = days.clone().next()?.close;
+        Self::no_gbbq_from(days, preclose, 1.)
+    }
+
+    /// 无股本变迁记录时，从给定的前收盘价与因子接续计算（增量更新用）。
+    pub fn no_gbbq_from(
+        days: impl ExactSizeIterator<Item = Day> + Clone,
+        mut preclose: f64,
+        mut factor: f64,
+    ) -> Option<Vec<Fq>> {
         Some(
             days.map(|d| {
                 let close = d.close;

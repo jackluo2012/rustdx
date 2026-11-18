@@ -4,7 +4,7 @@
 //!
 //! 运行方式：
 //! ```bash
-//! cargo run --example test_trading_calendar
+//! cargo run --example trading_calendar
 //! ```
 
 use chrono::{Datelike, NaiveDate, NaiveDateTime};

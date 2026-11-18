@@ -124,7 +124,8 @@ impl<'a> Tdx for Transaction<'a> {
 
             // 累加计算实际价格
             last_price += price_raw;
-            let price = last_price as f64 / 100.0;
+            let price =
+                last_price as f64 / super::price_kind(self.market, self.code).tick_divisor();
 
             self.data.push(TransactionData {
                 time: format!("{:02}:{:02}", hour, minute),
@@ -155,7 +156,14 @@ pub struct TransactionData {
     /// 成交编号（历史逐笔 [`HistoryTransaction`](crate::tcp::stock::HistoryTransaction)
     /// 协议中无此字段，恒为 0）
     pub num: i32,
-    /// 买卖方向（0=买盘, 1=卖盘, 2=中性盘）
+    /// 买卖方向：`0`=买盘、`1`=卖盘、`2`=中性盘。
+    ///
+    /// 实测（2026-11-17 全天历史逐笔）还会出现：
+    /// - `2`：集中在 09:25 与 15:00 的集合竞价成交；
+    /// - `5`：只出现在 15:05~15:30，即盘后时段的成交；
+    /// - `8`：从 09:15 起出现、盘中也零星存在，含义未确认。
+    ///
+    /// 统计买卖盘时应只取 `0` 和 `1`。
     pub buyorsell: i32,
 }
 

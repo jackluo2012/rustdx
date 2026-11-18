@@ -78,8 +78,8 @@ fn main() {
 
     println!();
     println!("📚 更多示例:");
-    println!("   cargo run --example test_security_quotes");
-    println!("   cargo run --example test_finance_info");
-    println!("   cargo run --example test_chinese_encoding");
+    println!("   cargo run --example security_quotes");
+    println!("   cargo run --example finance_info");
+    println!("   cargo run --example chinese_encoding");
     println!();
 }

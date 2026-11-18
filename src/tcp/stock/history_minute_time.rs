@@ -114,7 +114,8 @@ impl<'a> Tdx for HistoryMinuteTime<'a> {
                 return;
             };
             last_price = next_price;
-            let price = last_price as f64 / 100.0;
+            let price =
+                last_price as f64 / super::price_kind(self.market, self.code).quote_divisor();
 
             parsed.push(super::minute_time::MinuteTimeData { price, vol });
         }
