@@ -7,7 +7,7 @@ use rustdx_complete::file::{
 };
 use std::{
     fs::{self, File},
-    io::{self, Write},
+    io,
     path::Path,
     process::Command,
     sync::{
@@ -471,45 +471,77 @@ FORMAT CSVWithNames"
     previous_csv("factor.csv", keep_factor)
 }
 
-/// TODO: 与数据库有关的，把库名、表名可配置
+/// 由 CSV 表头生成 mongoimport 的带类型字段声明。
+///
+/// `date` 列按日期解析（Go 的时间格式串 `2006-01-02`），`code` 为字符串，
+/// 其余列都是数值。
+fn mongo_fields(header: &str) -> String {
+    header
+        .trim()
+        .split(',')
+        .map(|name| match name.trim_matches('"') {
+            "date" => "date.date(2006-01-02)".to_string(),
+            "code" => "code.string()".to_string(),
+            other => format!("{other}.double()"),
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+#[test]
+fn test_mongo_fields() {
+    assert_eq!(
+        mongo_fields("date,code,open,high,low,close,amount,vol\n"),
+        "date.date(2006-01-02),code.string(),open.double(),high.double(),low.double(),\
+         close.double(),amount.double(),vol.double()"
+    );
+    assert_eq!(
+        mongo_fields("\"code\",\"date\",\"factor\""),
+        "code.string(),date.date(2006-01-02),factor.double()"
+    );
+}
+
+/// 解析 day 文件并用 `mongoimport` 导入 MongoDB（`--table` 为 `库名.集合名`）。
+///
+/// CSV 的表头行不交给 mongoimport：它只有「首行即表头」和「命令行声明字段」
+/// 两种模式，后者才能声明类型，但不会跳过首行。这里读出表头生成字段声明，
+/// 再把其余内容经标准输入送进去。每次运行都是追加写入，重复导入会产生重复文档。
 pub fn run_mongodb(cmd: &DayCmd) -> Result<()> {
-    // TODO:排查为什么 date 列无法变成 date 类型 date.date(2006-01-02)
+    use std::io::{BufRead, BufReader};
+    use std::process::Stdio;
+
     // 先校验表名，避免解析完 day 文件才发现参数不合法
     let (database_name, table_name) = database_table(&cmd.table)?;
     cmd.run_csv()?;
-    let args = [
-        "--db",
-        database_name,
-        "--collection",
-        table_name,
-        "--type=csv",
-        "--file",
-        &cmd.output,
-        "--columnsHaveTypes",
-        "--fields=code.string()",
-    ];
-    let output = Command::new("mongoimport")
-        .args(args)
-        .output()
+
+    let mut csv = BufReader::new(File::open(&cmd.output)?);
+    let mut header = String::new();
+    csv.read_line(&mut header)?;
+    let fields = mongo_fields(&header);
+
+    // 输出直接转给终端：大文件导入时可以看到 mongoimport 的进度
+    let mut child = Command::new("mongoimport")
+        .args(["--db", database_name, "--collection", table_name])
+        .args(["--type=csv", "--columnsHaveTypes"])
+        .arg(format!("--fields={fields}"))
+        .stdin(Stdio::piped())
+        .spawn()
         .map_err(|e| {
             eyre!("无法运行 mongoimport（需安装 MongoDB Database Tools 并加入 PATH）: {e}")
         })?;
-    check_output("mongoimport", output)?;
+    let mut stdin = child.stdin.take().expect("stdin 已设为管道");
+    // 写入失败多半是 mongoimport 提前退出，以它的退出码为准
+    let copied = io::copy(&mut csv, &mut stdin);
+    drop(stdin);
+    let status = child.wait()?;
+    match status.code() {
+        Some(0) => copied.map(|_| ())?,
+        Some(code) => return Err(eyre!("mongoimport 执行失败，退出码 {code}")),
+        None => return Err(eyre!("mongoimport 被信号终止（无退出码）")),
+    }
+    info!("成功插入数据到 mongodb 数据库（{}）", cmd.table);
     keep_csv(&cmd.output, cmd.keep_csv)?;
     Ok(())
-}
-
-/// 转发子进程的输出；子进程失败时返回带退出码的错误。
-fn check_output(program: &str, output: std::process::Output) -> Result<()> {
-    io::stdout().write_all(&output.stdout)?;
-    io::stderr().write_all(&output.stderr)?;
-    if output.status.success() {
-        return Ok(());
-    }
-    match output.status.code() {
-        Some(code) => Err(eyre!("{program} 执行失败，退出码 {code}")),
-        None => Err(eyre!("{program} 被信号终止（无退出码）")),
-    }
 }
 
 fn keep_csv(fname: &impl AsRef<Path>, keep: bool) -> io::Result<()> {

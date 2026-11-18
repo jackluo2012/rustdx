@@ -36,6 +36,10 @@ pub struct HistoryTransaction<'d> {
 }
 
 impl<'d> HistoryTransaction<'d> {
+    /// 单次请求最多返回的笔数（实测）。翻页步长不能超过它；一般直接用
+    /// [`Client::history_transaction_all`](super::Client::history_transaction_all)。
+    pub const MAX_COUNT: u16 = 2000;
+
     /// 创建历史逐笔成交查询请求。
     ///
     /// ## 参数

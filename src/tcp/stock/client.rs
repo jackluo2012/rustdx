@@ -167,8 +167,9 @@ impl Client {
 
     /// 指数K线（mootdx `index`/`index_bars`），含涨跌家数。
     ///
-    /// 注意：股票K线命令（0x052c）对指数代码返回**空**结果，指数必须走本方法
-    /// （0x052d 指数专用命令）；区间语义请用 [`Client::index_bars_range`]。
+    /// 股票 K 线方法（[`Client::bars`] / [`Client::k`] 等）对指数代码也能返回正确的
+    /// 价格与成交量，但不含涨跌家数；需要涨跌家数时走本方法（区间语义请用
+    /// [`Client::index_bars_range`]）。
     pub fn index_bars<'a>(
         &mut self,
         market: u16,
@@ -436,6 +437,32 @@ impl Client {
         Ok(tx.result().to_vec())
     }
 
+    /// 当日全部逐笔成交：自动翻页，按时间升序。
+    ///
+    /// 单次请求最多 [`Transaction::MAX_COUNT`](super::Transaction::MAX_COUNT) 笔，
+    /// 本方法从最新一页往前取到开盘。
+    pub fn transaction_all(
+        &mut self,
+        market: u16,
+        code: &str,
+    ) -> std::io::Result<Vec<TransactionData>> {
+        let step = super::Transaction::MAX_COUNT;
+        collect_ticks(step, |start| self.transaction(market, code, start, step))
+    }
+
+    /// 某日全部历史逐笔成交：自动翻页，按时间升序。`date` 格式 YYYYMMDD。
+    pub fn history_transaction_all(
+        &mut self,
+        market: u16,
+        code: &str,
+        date: u32,
+    ) -> std::io::Result<Vec<TransactionData>> {
+        let step = HistoryTransaction::MAX_COUNT;
+        collect_ticks(step, |start| {
+            self.history_transaction(market, code, start, step, date)
+        })
+    }
+
     /// 历史逐笔成交（mootdx `transactions`）。
     pub fn history_transaction(
         &mut self,
@@ -499,7 +526,8 @@ impl Client {
 
     /// 全部证券列表（mootdx `stocks`），自动分页聚合。
     ///
-    /// 仅沪深（market 0/1）。北交所（market 2）实测服务器不回应列表请求，会超时。
+    /// 仅沪深（market 0/1）。北交所（market 2）服务器不提供列表，立即返回
+    /// `Unsupported` 错误。
     pub fn stocks(&mut self, market: u16) -> crate::Result<Vec<SecurityListData>> {
         super::stocks(&mut self.tcp, market).map_err(|e| {
             crate::Error::Io(std::io::Error::other(format!(
@@ -541,6 +569,27 @@ impl Client {
         })?;
         Ok(cat.result().to_vec())
     }
+}
+
+/// 逐笔翻页：`start = 0` 是最新一页，越往后越早；每页内部按时间升序。
+/// 取到不足一页为止，再把各页按「旧页在前」拼起来。
+fn collect_ticks(
+    step: u16,
+    mut fetch_page: impl FnMut(u16) -> std::io::Result<Vec<TransactionData>>,
+) -> std::io::Result<Vec<TransactionData>> {
+    let mut pages = Vec::new();
+    let mut start = 0u16;
+    loop {
+        let page = fetch_page(start)?;
+        let full = page.len() >= step as usize;
+        pages.push(page);
+        // 不足一页即到开盘；u16 偏移用尽也停止
+        let Some(next) = start.checked_add(step).filter(|_| full) else {
+            break;
+        };
+        start = next;
+    }
+    Ok(pages.into_iter().rev().flatten().collect())
 }
 
 /// 今日日期（**北京时间**），格式 YYYYMMDD（用于当日分时回退到今日历史分时）。
@@ -1057,6 +1106,44 @@ mod tests {
             sg_hltp: sg,
             pg_hzgb: pg,
         }
+    }
+
+    /// 逐笔翻页：从最新页往前取，拼接后按时间升序；不足一页即停。
+    #[test]
+    fn collect_ticks_orders_pages_oldest_first() {
+        use super::{TransactionData, collect_ticks};
+        let tick = |t: &str| TransactionData {
+            time: t.into(),
+            ..Default::default()
+        };
+        // 共 5 笔，步长 2：start=0 → 最新两笔，start=2 → 中间两笔，start=4 → 最早一笔
+        let mut starts = vec![];
+        let all = collect_ticks(2, |start| {
+            starts.push(start);
+            Ok(match start {
+                0 => vec![tick("14:58"), tick("14:59")],
+                2 => vec![tick("10:00"), tick("11:00")],
+                4 => vec![tick("09:30")],
+                _ => vec![],
+            })
+        })
+        .unwrap();
+        assert_eq!(starts, [0, 2, 4]);
+        let times: Vec<_> = all.iter().map(|t| t.time.as_str()).collect();
+        assert_eq!(times, ["09:30", "10:00", "11:00", "14:58", "14:59"]);
+
+        // 恰好整页时多取一页空页后停止
+        let mut calls = 0;
+        let all = collect_ticks(2, |start| {
+            calls += 1;
+            Ok(if start == 0 {
+                vec![tick("a"), tick("b")]
+            } else {
+                vec![]
+            })
+        })
+        .unwrap();
+        assert_eq!((all.len(), calls), (2, 2));
     }
 
     /// 首根 K 线当日及之前的除权事件不参与复权：后复权首日价 = 实际价。

@@ -25,7 +25,7 @@
 
 ```toml
 [dependencies]
-rustdx-complete = "1.13"
+rustdx-complete = "1.14"
 ```
 
 或 `cargo add rustdx-complete`。

@@ -59,6 +59,30 @@ pub static STOCK_IP: [SocketAddr; 40] = [
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(47, 107, 228, 47)), 7719),
 ];
 
+/// 本进程内上次成功连上的服务器在 [`STOCK_IP`] 中的下标。
+static PREFERRED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// 默认服务器列表，但把本进程内上次成功连上的那台放在最前。
+///
+/// 列表顺序来自某一时刻、某一网络的探测，换个网络未必合适；记住实际连通的
+/// 服务器后，后续连接（连接池、重连、批量拉取）不必每次从头试起。
+pub(crate) fn preferred_first() -> Vec<SocketAddr> {
+    let mut servers = STOCK_IP.to_vec();
+    let index = PREFERRED.load(std::sync::atomic::Ordering::Relaxed);
+    if index > 0 && index < servers.len() {
+        let preferred = servers.remove(index);
+        servers.insert(0, preferred);
+    }
+    servers
+}
+
+/// 记录一次成功的连接；不在 [`STOCK_IP`] 里的地址忽略。
+pub(crate) fn remember(addr: &SocketAddr) {
+    if let Some(index) = STOCK_IP.iter().position(|a| a == addr) {
+        PREFERRED.store(index, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 /// 并发探测服务器列表，返回可以建立 TCP 连接的地址（保持列表顺序）。
 ///
 /// 所有服务器同时探测，总耗时约为一个 `timeout`。只验证 TCP 可连，
@@ -199,6 +223,22 @@ mod tests {
     use super::{STOCK_IP, check_alive};
     use crate::tcp::tcpstream_ip;
     use std::time::Duration;
+
+    /// 记住的服务器排到最前，其余保持原相对顺序；未知地址不影响结果。
+    #[test]
+    fn preferred_server_moves_to_front() {
+        use super::{preferred_first, remember};
+        remember(&STOCK_IP[5]);
+        let servers = preferred_first();
+        assert_eq!(servers.len(), STOCK_IP.len());
+        assert_eq!(servers[0], STOCK_IP[5]);
+        assert_eq!(servers[1..6], STOCK_IP[0..5]);
+        assert_eq!(servers[6..], STOCK_IP[6..]);
+        remember(&"127.0.0.1:1".parse().unwrap());
+        assert_eq!(preferred_first()[0], STOCK_IP[5]);
+        remember(&STOCK_IP[0]);
+        assert_eq!(preferred_first(), STOCK_IP.to_vec());
+    }
 
     #[test]
     fn rtt_probes_share_global_and_per_probe_deadlines() {
