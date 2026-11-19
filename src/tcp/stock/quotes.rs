@@ -255,7 +255,7 @@ fn parse_quote(data: &[u8], pos: &mut usize) -> std::io::Result<QuoteData> {
     let amount_raw = cursor.u32()?;
     let amount = crate::tcp::helper::vol_amount(amount_raw as i32);
 
-    // s_vol、b_vol：外盘、内盘（手）
+    // s_vol、b_vol：内盘（主动卖）、外盘（主动买），单位手
     let s_vol = cursor.price()?;
     let b_vol = cursor.price()?;
 
@@ -381,16 +381,31 @@ fn parse_quote(data: &[u8], pos: &mut usize) -> std::io::Result<QuoteData> {
 /// 还原后全部是合法时间；各服务器同一时刻返回值一致。pytdx `_format_time`
 /// 没有加回现价，结果与实测不符（价格越高偏差越大）。
 ///
+/// 放大后的舍入噪声可以超过半个百分之一秒：债券的值在 10 亿量级，单精度的
+/// 间隔是 128，即 1.28 个百分之一秒。2026-11-19 实测 13:29:00.00 的债券是
+/// `1328999936`（真值 `1329000000`），四舍五入得 `13:28:99.99`。所以放大过的
+/// 品种在四舍五入结果非法时，再试相邻的百分之一秒。
+///
 /// 值异常（无法解码出合法时间）时返回空字符串。
 fn servertime_string(sum: i64, scale: i64) -> String {
     if sum <= 0 || scale <= 0 {
         return String::new();
     }
-    let s = ((sum + scale / 2) / scale).to_string();
+    let rounded = (sum + scale / 2) / scale;
+    let neighbours: &[i64] = if scale > 1 { &[0, 1, -1] } else { &[0] };
+    neighbours
+        .iter()
+        .find_map(|d| format_time_integer(rounded + d))
+        .unwrap_or_default()
+}
+
+/// 把时间整数 `HHMMSScc`（7 位为 `HMMSScc`）格式化为 `HH:MM:SS.mmm`；非法返回 `None`。
+fn format_time_integer(time: i64) -> Option<String> {
+    let s = time.to_string();
     let hour_len = match s.len() {
         7 => 1,
         8 => 2,
-        _ => return String::new(),
+        _ => return None,
     };
     let field = |from: usize, to: usize| s[from..to].parse::<u32>().unwrap_or(u32::MAX);
     let (hour, minute) = (field(0, hour_len), field(hour_len, hour_len + 2));
@@ -399,9 +414,12 @@ fn servertime_string(sum: i64, scale: i64) -> String {
         field(hour_len + 4, s.len()),
     );
     if hour > 23 || minute > 59 || second > 59 {
-        return String::new();
+        return None;
     }
-    format!("{hour:02}:{minute:02}:{second:02}.{:03}", centis * 10)
+    Some(format!(
+        "{hour:02}:{minute:02}:{second:02}.{:03}",
+        centis * 10
+    ))
 }
 
 /// 集合竞价阶段的虚拟撮合信息，见 [`QuoteData::auction`]。
@@ -417,26 +435,82 @@ pub struct AuctionMatch {
     pub unmatched_sell: f64,
 }
 
+/// 指数成分股的涨跌统计，见 [`QuoteData::breadth`]。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct IndexBreadth {
+    /// 上涨家数。
+    pub up: u32,
+    /// 下跌家数。
+    pub down: u32,
+    /// 涨停家数（现价等于涨停价，不区分是否封死）。
+    pub limit_up: u32,
+    /// 跌停家数（现价等于跌停价，不区分是否封死）。
+    pub limit_down: u32,
+}
+
 impl QuoteData {
-    /// 集合竞价阶段（09:15~09:25 尚未定价时）的虚拟撮合信息；其它时候返回 `None`。
+    /// 集合竞价阶段的虚拟撮合信息：开盘竞价（09:15~09:25 定价前）与**收盘竞价**
+    /// （14:57~15:00 定价前）；其它时候返回 `None`。
     ///
-    /// 此阶段的行情快照没有现价（`price`、`open`、`vol` 都是 0），撮合信息借用
-    /// 五档字段传递（2026-11-19 早盘实测沪深主板、创业板、科创板、ETF、可转债一致）：
-    /// 买一价 = 卖一价 = 撮合价，买一量 = 卖一量 = 撮合量，买二量 / 卖二量 =
-    /// 买方 / 卖方未匹配量。09:25 定价后恢复为正常的现价与五档。
+    /// 竞价阶段撮合信息借用五档字段传递（2026-11-19 早盘与尾盘实测沪深主板、
+    /// 创业板、科创板、ETF、北交所一致）：买一价 = 卖一价 = 撮合价，
+    /// 买一量 = 卖一量 = 撮合量，买二量 / 卖二量 = 买方 / 卖方未匹配量，
+    /// 买二价、卖二价为 0。定价后恢复为正常的现价与五档。
     ///
-    /// 北交所竞价阶段是普通的买一卖一报价，不走这套约定，返回 `None`。
+    /// - 开盘竞价时没有现价（`price`、`open`、`vol` 都是 0）；收盘竞价时
+    ///   `price` 停在 14:57 前的最后一笔成交价，**不是**收盘价，收盘价以撮合价
+    ///   成交后（实测 15:00:02~15:00:04）才出现在 `price` 里；
+    /// - 买卖委托还撮合不上时（常见于成交稀疏的股票、竞价刚开始），服务器给的是
+    ///   普通的买一、卖一报价或全 0，返回 `None`；
+    /// - 沪市可转债没有收盘竞价，14:57 后仍是连续交易。
     pub fn auction(&self) -> Option<AuctionMatch> {
-        let matched = self.price == 0.0
-            && self.bid1 > 0.0
+        let matched = self.bid1 > 0.0
             && self.bid1 == self.ask1
-            && self.bid1_vol == self.ask1_vol;
+            && self.bid1_vol == self.ask1_vol
+            && self.bid2 == 0.0
+            && self.ask2 == 0.0;
         matched.then_some(AuctionMatch {
             price: self.bid1,
             volume: self.bid1_vol,
             unmatched_buy: self.bid2_vol,
             unmatched_sell: self.ask2_vol,
         })
+    }
+
+    /// 指数的涨跌家数与涨跌停家数；不是指数或服务器没给统计时返回 `None`。
+    ///
+    /// 指数没有盘口，行情里的五档量字段装的是成分股统计（2026-11-19 盘中实测，
+    /// 与逐只成分股行情统计的结果一致，差异只来自两次请求之间的变动）：
+    /// 买一量 / 卖一量 = 上涨 / 下跌家数，买二量 / 卖二量 = 涨停 / 跌停家数。
+    ///
+    /// - 宽基指数（上证指数、深证成指、沪深 300、科创 50、北证 50 等）与
+    ///   通达信板块指数（880xxx，见 [`Block::index_code`](super::Block)）都适用，
+    ///   所以一次行情请求就能拿到几十个题材的涨跌家数与涨停家数；
+    /// - 涨停 / 跌停按「现价等于涨跌停价」统计，不区分是否封死；
+    /// - 按代码识别指数：沪市 `000`/`88`/`999` 开头、深市 `399` 开头、北交所
+    ///   `899` 开头；
+    /// - 已停止维护的指数（如 `399005`）四个数全为 0，返回 `None`；
+    /// - `880005`（涨跌家数指数）的字段另有含义，返回 `None`。
+    pub fn breadth(&self) -> Option<IndexBreadth> {
+        let is_index = match self.market {
+            0 => self.code.starts_with("399"),
+            1 => {
+                self.code != "880005"
+                    && ["000", "88", "999"]
+                        .iter()
+                        .any(|p| self.code.starts_with(p))
+            }
+            2 => self.code.starts_with("899"),
+            _ => false,
+        };
+        let count = |v: f64| (v >= 0.0).then_some(v as u32);
+        let breadth = IndexBreadth {
+            up: count(self.bid1_vol)?,
+            down: count(self.ask1_vol)?,
+            limit_up: count(self.bid2_vol)?,
+            limit_down: count(self.ask2_vol)?,
+        };
+        (is_index && breadth.up + breadth.down > 0).then_some(breadth)
     }
 
     /// 服务器为无效代码返回的全零占位记录。
@@ -472,9 +546,13 @@ pub struct QuoteData {
     pub cur_vol: f64,
     /// 成交额（元）
     pub amount: f64,
-    /// 外盘（手）
+    /// **内盘**（手）：主动卖出成交的量（s = sell）。
+    ///
+    /// 2026-11-19 盘中实测 5 只股票：与当日逐笔里卖盘（方向 1）的合计相差不到 5%，
+    /// 差额是集合竞价的中性盘，大致对半分给了内外盘；`s_vol + b_vol == vol`。
+    /// 此前文档把内外盘写反了。指数的这两个字段是成分股内、外盘的合计。
     pub s_vol: f64,
-    /// 内盘（手）
+    /// **外盘**（手）：主动买入成交的量（b = buy）。见 [`QuoteData::s_vol`]。
     pub b_vol: f64,
     /// 涨跌额（元）
     pub change: f64,
@@ -494,7 +572,11 @@ pub struct QuoteData {
     /// 才是时间整数 `HHMMSScc`（倍数：股票 1、基金 10、债券 100）。
     /// 一般直接用 [`QuoteData::servertime`]。
     pub servertime_raw: i32,
-    /// 买一价（元）
+    /// 买一价（元）。
+    ///
+    /// **指数没有盘口**：指数行情的五档字段装的是成分股统计，价格类字段
+    /// （`bid1` 等）不是报价，不要当盘口用。涨跌家数与涨跌停家数用
+    /// [`QuoteData::breadth`] 取；其余字段含义未确认。
     pub bid1: f64,
     /// 卖一价（元）
     pub ask1: f64,
@@ -822,6 +904,51 @@ mod tests {
         assert!(quotes.data.is_empty());
     }
 
+    /// 指数的涨跌家数取自五档量字段；个股、停止维护的指数、880005 不给。
+    #[test]
+    fn breadth_only_for_live_indexes() {
+        let quote = |market: u16, code: &str, vols: [f64; 4]| QuoteData {
+            market,
+            code: code.into(),
+            bid1_vol: vols[0],
+            ask1_vol: vols[1],
+            bid2_vol: vols[2],
+            ask2_vol: vols[3],
+            ..Default::default()
+        };
+        // 2026-11-19 盘中实测：上证指数、板块指数「昨日涨停」、北证 50
+        let expect = |up, down, limit_up, limit_down| {
+            Some(IndexBreadth {
+                up,
+                down,
+                limit_up,
+                limit_down,
+            })
+        };
+        let sample = [345.0, 1977.0, 13.0, 25.0];
+        assert_eq!(
+            quote(1, "000001", sample).breadth(),
+            expect(345, 1977, 13, 25)
+        );
+        assert_eq!(
+            quote(1, "880864", [25.0, 18.0, 6.0, 3.0]).breadth(),
+            expect(25, 18, 6, 3)
+        );
+        assert_eq!(
+            quote(2, "899050", [15.0, 338.0, 0.0, 0.0]).breadth(),
+            expect(15, 338, 0, 0)
+        );
+        assert_eq!(
+            quote(0, "399001", sample).breadth(),
+            expect(345, 1977, 13, 25)
+        );
+        // 同代码的深市平安银行是个股：这些字段是真盘口
+        assert_eq!(quote(0, "000001", sample).breadth(), None);
+        assert_eq!(quote(1, "600519", sample).breadth(), None);
+        assert_eq!(quote(0, "399005", [0.0; 4]).breadth(), None);
+        assert_eq!(quote(1, "880005", sample).breadth(), None);
+    }
+
     /// 入参为「原始值 + 现价」与报价精度倍数。样本来自实盘（注释为 原始值 + 现价）。
     #[test]
     fn test_servertime_string() {
@@ -843,6 +970,10 @@ mod tests {
         assert_eq!(servertime_string(144344952 + 4043, 10), "14:43:49.000");
         // 债券：倍数 100，08:56:18.00 实测为 856179968（开盘前现价为 0）
         assert_eq!(servertime_string(856179968, 100), "08:56:18.000");
+        // 债券：13:29:00.00 实测为 1328999936，四舍五入是非法的 13:28:99.99
+        assert_eq!(servertime_string(1328999936, 100), "13:29:00.000");
+        // 未放大的品种不做相邻修正
+        assert_eq!(servertime_string(13289999, 1), "");
         // 异常值：非正数、位数不对、分/秒越界
         assert_eq!(servertime_string(0, 1), "");
         assert_eq!(servertime_string(-1, 1), "");
@@ -886,8 +1017,24 @@ mod tests {
                 .auction()
                 .is_none()
         );
-        // 北交所竞价阶段是普通报价（920799 09:22：买一 24.86x36、卖一 25.00x0）
+        // 撮合不上时是普通报价（920799 09:22：买一 24.86x36、卖一 25.00x0）
         assert!(q(0.0, 24.86, 36., 25.0, 0., 0., 0.).auction().is_none());
+        // 收盘竞价：现价停在 14:57 前的最后一笔，撮合信息同样在五档里
+        // 600519 14:59:58：现价 1460.21、撮合价 1466.16、撮合 1634 手、卖方未匹配 3 手
+        let a = q(1460.21, 1466.16, 1634., 1466.16, 1634., 0., 3.)
+            .auction()
+            .unwrap();
+        assert_eq!((a.price, a.volume, a.unmatched_sell), (1466.16, 1634., 3.));
+        // 北交所 920799 14:57:52：撮合价 23.85、撮合 37 手、买方未匹配 32 手
+        let a = q(23.88, 23.85, 37., 23.85, 37., 32., 0.).auction().unwrap();
+        assert_eq!((a.price, a.unmatched_buy), (23.85, 32.));
+        // 指数的买一价、卖一价可能相等，但买二价不为 0，不是竞价
+        let index = QuoteData {
+            bid2: 2304.6,
+            ask2: 2304.6,
+            ..q(2304.6, 2304.6, 154., 2304.6, 154., 3., 0.)
+        };
+        assert!(index.auction().is_none());
     }
 
     /// 开盘前现价为 0：涨跌额与涨跌幅是 0，不是 -100%。

@@ -198,8 +198,57 @@ pub struct SecurityListData {
     pub pre_close: f64,
 }
 
+impl SecurityListData {
+    /// 便于匹配和展示的名称：去掉汉字之间的填充空格，全角字母数字转半角。
+    ///
+    /// 深交所把不足四个字的简称用空格撑开，字母用全角：服务器返回的是
+    /// `万 科Ａ`、`红 宝 丽`（2026-11-19 深市股票有 36 只这样）。本方法给出
+    /// `万科A`、`红宝丽`；[`name`](Self::name) 保持服务器原样。两个 ASCII 字符之间
+    /// 的空格保留（如指数 `AI 50`）。
+    pub fn display_name(&self) -> String {
+        let chars: Vec<char> = self
+            .name
+            .chars()
+            .map(|c| match c {
+                '\u{FF01}'..='\u{FF5E}' => char::from_u32(c as u32 - 0xFEE0).unwrap_or(c),
+                '\u{3000}' => ' ',
+                _ => c,
+            })
+            .collect();
+        let keep = |i: usize| {
+            let ascii = |j: Option<usize>| {
+                j.and_then(|j| chars.get(j))
+                    .is_some_and(|c| c.is_ascii() && !c.is_whitespace())
+            };
+            !chars[i].is_whitespace() || (ascii(i.checked_sub(1)) && ascii(Some(i + 1)))
+        };
+        (0..chars.len())
+            .filter(|&i| keep(i))
+            .map(|i| chars[i])
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn display_name_strips_padding() {
+        let show = |name: &str| {
+            super::SecurityListData {
+                name: name.into(),
+                ..Default::default()
+            }
+            .display_name()
+        };
+        assert_eq!(show("万 科Ａ"), "万科A");
+        assert_eq!(show("红 宝 丽"), "红宝丽");
+        assert_eq!(show("柳  工"), "柳工");
+        assert_eq!(show("贵州茅台"), "贵州茅台");
+        assert_eq!(show("*ST西旅"), "*ST西旅");
+        assert_eq!(show("AI 50"), "AI 50");
+        assert_eq!(show("TDX 能源"), "TDX能源");
+    }
+
     use super::*;
 
     #[test]
