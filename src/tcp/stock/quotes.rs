@@ -311,8 +311,11 @@ fn parse_quote(data: &[u8], pos: &mut usize) -> std::io::Result<QuoteData> {
     let low = (base + low_diff as f64) / div;
 
     // 涨跌额与涨跌幅自行计算（协议不直接提供）
-    let change = price - last_close;
-    let change_percent = if last_close > 0.0 {
+    // 现价为 0 表示还没有成交（开盘前、集合竞价未出价、全天停牌），此时没有
+    // 涨跌可言：不能拿 0 去减昨收，否则盘前一扫全是 -100%。
+    let has_price = price_raw != 0;
+    let change = if has_price { price - last_close } else { 0.0 };
+    let change_percent = if has_price && last_close > 0.0 {
         change / last_close * 100.0
     } else {
         0.0
@@ -333,7 +336,10 @@ fn parse_quote(data: &[u8], pos: &mut usize) -> std::io::Result<QuoteData> {
         change,
         change_percent,
         speed: reversed_bytes9 as f64 / 100.0,
-        servertime: servertime_string(i64::from(reversed_bytes0) + i64::from(price_raw)),
+        servertime: servertime_string(
+            i64::from(reversed_bytes0) + i64::from(price_raw),
+            (div / 100.0) as i64,
+        ),
         servertime_raw: reversed_bytes0,
         bid1: (base + bid1 as f64) / div,
         ask1: (base + ask1 as f64) / div,
@@ -360,52 +366,78 @@ fn parse_quote(data: &[u8], pos: &mut usize) -> std::io::Result<QuoteData> {
 
 /// 将行情时间整数解码为字符串 `HH:MM:SS.mmm`。
 ///
-/// 入参是**已加回现价**的值：协议字段 reversed_bytes0 与开/高/低/昨收一样，
-/// 是相对现价（单位：分）的差值，`时间整数 = reversed_bytes0 + price_raw`。
-/// 加回后就是规整的十进制拼接：
+/// - `sum`：**已加回现价**的值。协议字段 reversed_bytes0 与开/高/低/昨收一样，
+///   是相对现价的差值，`时间整数 = reversed_bytes0 + price_raw`；
+/// - `scale`：该品种报价精度相对股票的倍数（股票 1、基金 10、债券 100）。
+///   时间整数与价格用同一把尺子放大，除以它才是 `HHMMSScc`（7 位为 `HMMSScc`），
+///   末两位是百分之一秒。
 ///
-/// - 7 位 `HMMSScc`、8 位 `HHMMSScc`：末两位是百分之一秒；
-/// - 9 位 `HHMMSSmmm`（ETF、B 股等）：末三位是毫秒；
-/// - 8 位且按 `HHMMSScc` 读不合法时（如 `93005001`），按 `HMMSSmmm` 读。
+/// 该值在服务端是单精度浮点，放大后的低位是舍入噪声（如债券 08:56:18.00 实测
+/// 为 `856179968` 而非 `856180000`），所以先四舍五入到百分之一秒。此前把基金
+/// 9 位值的末三位当作毫秒，那三位其实就是这种噪声。
 ///
-/// 依据（2026-11-17 实测 40 只股票/ETF/指数/B 股）：加回现价后全部是合法时间，
-/// 收盘后落在整 15 秒档位（如 `15:12:45.01`），各服务器同一时刻返回值一致。
-///
-/// pytdx `_format_time` 没有加回现价，而是把后四位当作「分钟的万分之几」
-/// 去凑，结果与实测不符：价格越高偏差越大（1458 元的股票偏约 15 分钟），
-/// 9 位值还会得到 `144:15:05` 这样的非法时间。
+/// 依据：2026-11-17 实测 40 只股票/ETF/指数/B 股、2026-11-19 开盘前实测可转债，
+/// 还原后全部是合法时间；各服务器同一时刻返回值一致。pytdx `_format_time`
+/// 没有加回现价，结果与实测不符（价格越高偏差越大）。
 ///
 /// 值异常（无法解码出合法时间）时返回空字符串。
-fn servertime_string(v: i64) -> String {
-    if v <= 0 {
+fn servertime_string(sum: i64, scale: i64) -> String {
+    if sum <= 0 || scale <= 0 {
         return String::new();
     }
-    let s = v.to_string();
-    // (小时位数, 小数位数)。8 位只在前两位不是合法小时时才按 HMMSSmmm 读，
-    // 避免分/秒非法的值落到另一种布局、解出离谱的时间
-    let (hour_len, frac_len) = match s.len() {
-        7 => (1, 2),
-        8 if s[..2].parse::<u32>().is_ok_and(|h| h <= 23) => (2, 2),
-        8 => (1, 3),
-        9 => (2, 3),
+    let s = ((sum + scale / 2) / scale).to_string();
+    let hour_len = match s.len() {
+        7 => 1,
+        8 => 2,
         _ => return String::new(),
     };
-    servertime_layout(&s, hour_len, frac_len).unwrap_or_default()
+    let field = |from: usize, to: usize| s[from..to].parse::<u32>().unwrap_or(u32::MAX);
+    let (hour, minute) = (field(0, hour_len), field(hour_len, hour_len + 2));
+    let (second, centis) = (
+        field(hour_len + 2, hour_len + 4),
+        field(hour_len + 4, s.len()),
+    );
+    if hour > 23 || minute > 59 || second > 59 {
+        return String::new();
+    }
+    format!("{hour:02}:{minute:02}:{second:02}.{:03}", centis * 10)
 }
 
-/// 按给定布局解码；时/分/秒任一非法时返回 `None`。
-fn servertime_layout(s: &str, hour_len: usize, frac_len: usize) -> Option<String> {
-    let field = |from: usize, to: usize| s.get(from..to)?.parse::<u32>().ok();
-    let hour = field(0, hour_len)?;
-    let minute = field(hour_len, hour_len + 2)?;
-    let second = field(hour_len + 2, hour_len + 4)?;
-    let frac = field(hour_len + 4, hour_len + 4 + frac_len)?;
-    let millis = if frac_len == 2 { frac * 10 } else { frac };
-    (hour <= 23 && minute < 60 && second < 60)
-        .then(|| format!("{hour:02}:{minute:02}:{second:02}.{millis:03}"))
+/// 集合竞价阶段的虚拟撮合信息，见 [`QuoteData::auction`]。
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+pub struct AuctionMatch {
+    /// 虚拟撮合价（元）：按此刻的委托撮合将得到的开盘价。
+    pub price: f64,
+    /// 撮合量（手）：按撮合价可成交的数量。
+    pub volume: f64,
+    /// 买方未匹配量（手）：撮合价上买方多出来的委托。
+    pub unmatched_buy: f64,
+    /// 卖方未匹配量（手）。与买方未匹配量至多一个非零。
+    pub unmatched_sell: f64,
 }
 
 impl QuoteData {
+    /// 集合竞价阶段（09:15~09:25 尚未定价时）的虚拟撮合信息；其它时候返回 `None`。
+    ///
+    /// 此阶段的行情快照没有现价（`price`、`open`、`vol` 都是 0），撮合信息借用
+    /// 五档字段传递（2026-11-19 早盘实测沪深主板、创业板、科创板、ETF、可转债一致）：
+    /// 买一价 = 卖一价 = 撮合价，买一量 = 卖一量 = 撮合量，买二量 / 卖二量 =
+    /// 买方 / 卖方未匹配量。09:25 定价后恢复为正常的现价与五档。
+    ///
+    /// 北交所竞价阶段是普通的买一卖一报价，不走这套约定，返回 `None`。
+    pub fn auction(&self) -> Option<AuctionMatch> {
+        let matched = self.price == 0.0
+            && self.bid1 > 0.0
+            && self.bid1 == self.ask1
+            && self.bid1_vol == self.ask1_vol;
+        matched.then_some(AuctionMatch {
+            price: self.bid1,
+            volume: self.bid1_vol,
+            unmatched_buy: self.bid2_vol,
+            unmatched_sell: self.ask2_vol,
+        })
+    }
+
     /// 服务器为无效代码返回的全零占位记录。
     fn is_placeholder(&self) -> bool {
         self.price == 0.0 && self.last_close == 0.0 && self.vol == 0.0 && self.servertime_raw == 0
@@ -417,7 +449,9 @@ impl QuoteData {
 pub struct QuoteData {
     /// 股票代码（6位）
     pub code: String,
-    /// 当前价（元）
+    /// 当前价（元）。**为 0 表示今天还没有成交**（开盘前、集合竞价未定价、全天
+    /// 停牌）：此时开/高/低、成交量也是 0，涨跌额与涨跌幅按 0 给出；集合竞价的
+    /// 撮合价见 [`QuoteData::auction`]。
     pub price: f64,
     /// 昨收价（元）。协议中为相对当前价的差值，已还原。
     pub last_close: f64,
@@ -451,8 +485,9 @@ pub struct QuoteData {
     pub servertime: String,
     /// 行情时间的协议原始值（reversed_bytes0）。
     ///
-    /// 它是相对现价的差值：`servertime_raw + 现价×100` 才是时间整数
-    /// （`HHMMSScc`，ETF 等为 `HHMMSSmmm`）。一般直接用 [`QuoteData::servertime`]。
+    /// 它是相对现价的差值，且与价格同步放大：`(servertime_raw + 现价整数) ÷ 倍数`
+    /// 才是时间整数 `HHMMSScc`（倍数：股票 1、基金 10、债券 100）。
+    /// 一般直接用 [`QuoteData::servertime`]。
     pub servertime_raw: i32,
     /// 买一价（元）
     pub bid1: f64,
@@ -769,28 +804,83 @@ mod tests {
         assert!(quotes.data.is_empty());
     }
 
-    /// 入参为「原始值 + 现价」。样本来自 2026-11-17 实盘（注释为 原始值 + 现价）。
+    /// 入参为「原始值 + 现价」与报价精度倍数。样本来自实盘（注释为 原始值 + 现价）。
     #[test]
     fn test_servertime_string() {
-        assert_eq!(servertime_string(15121501), "15:12:15.010"); // 000001: 15120276 + 1225
+        // 股票、指数：倍数 1
+        assert_eq!(servertime_string(15121501, 1), "15:12:15.010"); // 000001: 15120276 + 1225
         // 600519：不加现价时看似落后约 15 分钟
-        assert_eq!(servertime_string(15115401), "15:11:54.010"); // 14969631 + 145770
-        assert_eq!(servertime_string(15124500), "15:12:45.000"); // 399001: 14060648 + 1063852
-        // 9 位：毫秒（ETF、B 股）
-        assert_eq!(servertime_string(151258000), "15:12:58.000"); // 510300: 151253958 + 4042
-        assert_eq!(servertime_string(150000000), "15:00:00.000"); // 900901: 149999502 + 498
-        // 盘中样本：000001 相隔 3 秒的两次快照（现价 1225），跨整分
-        assert_eq!(servertime_string(14434475 + 1225), "14:43:57.000");
-        assert_eq!(servertime_string(14438775 + 1225), "14:44:00.000");
-        // 10 点前：7 位为 HMMSScc；8 位且按 HHMMSScc 不合法时为 HMMSSmmm
-        assert_eq!(servertime_string(9300501), "09:30:05.010");
-        assert_eq!(servertime_string(93005001), "09:30:05.001");
+        assert_eq!(servertime_string(15115401, 1), "15:11:54.010"); // 14969631 + 145770
+        assert_eq!(servertime_string(15124500, 1), "15:12:45.000"); // 399001: 14060648 + 1063852
+        // 盘中：000001 相隔 3 秒的两次快照（现价 1225），跨整分
+        assert_eq!(servertime_string(14434475 + 1225, 1), "14:43:57.000");
+        assert_eq!(servertime_string(14438775 + 1225, 1), "14:44:00.000");
+        // 10 点前为 7 位
+        assert_eq!(servertime_string(9300501, 1), "09:30:05.010");
+        // 基金、沪市 B 股：倍数 10
+        assert_eq!(servertime_string(151253958 + 4042, 10), "15:12:58.000"); // 510300
+        assert_eq!(servertime_string(149999502 + 498, 10), "15:00:00.000"); // 900901
+        assert_eq!(servertime_string(85618000, 10), "08:56:18.000"); // 开盘前，现价为 0
+        // 单精度舍入噪声：144344952 + 4043 = 144348995 → 14:43:49.00
+        assert_eq!(servertime_string(144344952 + 4043, 10), "14:43:49.000");
+        // 债券：倍数 100，08:56:18.00 实测为 856179968（开盘前现价为 0）
+        assert_eq!(servertime_string(856179968, 100), "08:56:18.000");
         // 异常值：非正数、位数不对、分/秒越界
-        assert_eq!(servertime_string(0), "");
-        assert_eq!(servertime_string(-1), "");
-        assert_eq!(servertime_string(123), "");
-        assert_eq!(servertime_string(15126501), ""); // 秒 65
-        assert_eq!(servertime_string(15601501), ""); // 分 60
-        assert_eq!(servertime_string(1_512_150_100), ""); // 10 位
+        assert_eq!(servertime_string(0, 1), "");
+        assert_eq!(servertime_string(-1, 1), "");
+        assert_eq!(servertime_string(123, 1), "");
+        assert_eq!(servertime_string(15126501, 1), ""); // 秒 65
+        assert_eq!(servertime_string(15601501, 1), ""); // 分 60
+        assert_eq!(servertime_string(24000000, 1), ""); // 时 24
+        assert_eq!(servertime_string(151258000, 1), ""); // 9 位却按股票倍数
+    }
+
+    /// 集合竞价的撮合信息借用五档字段传递。数值取自 2026-11-19 早盘实盘。
+    #[test]
+    fn auction_match_from_bid_ask_fields() {
+        let q = |price, b1: f64, b1v: f64, a1: f64, a1v: f64, b2v: f64, a2v: f64| QuoteData {
+            price,
+            bid1: b1,
+            bid1_vol: b1v,
+            ask1: a1,
+            ask1_vol: a1v,
+            bid2_vol: b2v,
+            ask2_vol: a2v,
+            ..Default::default()
+        };
+        // 600519 09:22：撮合价 1467.99、撮合 567 手、卖方未匹配 11 手
+        let a = q(0.0, 1467.99, 567., 1467.99, 567., 0., 11.)
+            .auction()
+            .unwrap();
+        assert_eq!(
+            (a.price, a.volume, a.unmatched_buy, a.unmatched_sell),
+            (1467.99, 567., 0., 11.)
+        );
+        // 000001 09:22：买方未匹配 1256 手
+        let a = q(0.0, 12.13, 2266., 12.13, 2266., 1256., 0.)
+            .auction()
+            .unwrap();
+        assert_eq!((a.unmatched_buy, a.unmatched_sell), (1256., 0.));
+        // 开盘前无委托、09:25 定价后、连续竞价中：都不是竞价撮合状态
+        assert!(q(0.0, 0., 0., 0., 0., 0., 0.).auction().is_none());
+        assert!(
+            q(1442.0, 1441.98, 1., 1442.0, 16., 1., 1.)
+                .auction()
+                .is_none()
+        );
+        // 北交所竞价阶段是普通报价（920799 09:22：买一 24.86x36、卖一 25.00x0）
+        assert!(q(0.0, 24.86, 36., 25.0, 0., 0., 0.).auction().is_none());
+    }
+
+    /// 开盘前现价为 0：涨跌额与涨跌幅是 0，不是 -100%。
+    #[test]
+    fn no_change_before_first_trade() {
+        let mut quotes = SecurityQuotes::new(vec![(1, "600519")]);
+        quotes
+            .try_parse(quote_body(&[quote_record(1, "600519", 0, 144266)]))
+            .unwrap();
+        let q = &quotes.data[0];
+        assert_eq!((q.price, q.last_close), (0.0, 1442.66));
+        assert_eq!((q.change, q.change_percent), (0.0, 0.0));
     }
 }
