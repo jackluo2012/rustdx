@@ -38,7 +38,31 @@ use trade_date_a;
 pub struct TradingCalendar;
 
 impl TradingCalendar {
+    /// 内置节假日数据覆盖的年份（含首尾）。
+    ///
+    /// 节假日是随 `trade_date_a` 依赖一起发布的静态数据（来自年度休市公告），
+    /// 范围之外**没有任何节假日信息**——见 [`TradingCalendar::is_trading_day`] 的警告。
+    pub const HOLIDAY_DATA_YEARS: std::ops::RangeInclusive<i32> = 2024..=2026;
+
+    /// 该日期是否在内置节假日数据的覆盖范围内。
+    pub fn has_holiday_data(date: &NaiveDate) -> bool {
+        use chrono::Datelike;
+        Self::HOLIDAY_DATA_YEARS.contains(&date.year())
+    }
+
+    /// 判断是否是交易日；超出节假日数据覆盖范围时返回 `None`，而不是猜一个结果。
+    ///
+    /// 需要可靠判定时用这个：`None` 意味着应当改用别的来源（如交易所官方日历），
+    /// 或升级到带新一年数据的版本。
+    pub fn try_is_trading_day(date: &NaiveDate) -> Option<bool> {
+        Self::has_holiday_data(date).then(|| Self::is_trading_day(date))
+    }
+
     /// 判断指定日期是否是交易日
+    ///
+    /// **超出 [`TradingCalendar::HOLIDAY_DATA_YEARS`] 的日期只按周几判断**：周一到周五
+    /// 一律返回 `true`，元旦、春节、国庆都会被当成交易日。跨年前后尤其要注意，
+    /// 可靠判定请用 [`TradingCalendar::try_is_trading_day`]。
     ///
     /// # 参数
     ///
@@ -521,5 +545,42 @@ mod tests {
 
         let converted = TradingCalendar::i32_to_date(i32);
         assert_eq!(converted, date);
+    }
+
+    /// 覆盖范围内每年元旦都是休市日；范围之外没有节假日数据，只按周几判断。
+    #[test]
+    fn holiday_data_coverage_is_explicit() {
+        let d = |y, m, day| NaiveDate::from_ymd_opt(y, m, day).unwrap();
+        for year in TradingCalendar::HOLIDAY_DATA_YEARS {
+            assert_eq!(
+                TradingCalendar::try_is_trading_day(&d(year, 1, 1)),
+                Some(false),
+                "{year}"
+            );
+        }
+        // 2027-10-01 是周五、国庆：范围外被当成交易日，所以必须能识别出「没有数据」
+        let national_day = d(2027, 10, 1);
+        assert!(!TradingCalendar::has_holiday_data(&national_day));
+        assert_eq!(TradingCalendar::try_is_trading_day(&national_day), None);
+        assert_eq!(TradingCalendar::try_is_trading_day(&d(2023, 10, 2)), None);
+    }
+
+    /// 哨兵：依赖升级后带来了新一年的节假日数据时，本测试会失败——
+    /// 届时把 `HOLIDAY_DATA_YEARS` 的上界一起往后挪。
+    #[test]
+    fn holiday_data_years_matches_dependency() {
+        let next = *TradingCalendar::HOLIDAY_DATA_YEARS.end() + 1;
+        // 国庆 10 月 1~3 日必然休市；其中的工作日仍被判为交易日 = 依赖里没有这一年的数据
+        let weekday_in_holiday = (1..=3)
+            .map(|day| NaiveDate::from_ymd_opt(next, 10, day).unwrap())
+            .find(|d| {
+                use chrono::Datelike;
+                d.weekday().number_from_monday() <= 5
+            })
+            .expect("10 月 1~3 日里至少有一个工作日");
+        assert!(
+            TradingCalendar::is_trading_day(&weekday_in_holiday),
+            "依赖已包含 {next} 年节假日数据，请更新 HOLIDAY_DATA_YEARS"
+        );
     }
 }

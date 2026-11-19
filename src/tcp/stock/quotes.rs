@@ -322,6 +322,7 @@ fn parse_quote(data: &[u8], pos: &mut usize) -> std::io::Result<QuoteData> {
     };
 
     Ok(QuoteData {
+        market,
         code,
         price,
         last_close,
@@ -447,6 +448,10 @@ impl QuoteData {
 /// 股票实时行情数据（完整五档买卖盘，字段语义与 pytdx get_security_quotes 对齐）。
 #[derive(Debug, Default, Clone, serde::Serialize)]
 pub struct QuoteData {
+    /// 市场：0=深市、1=沪市、2=北交所。同一个 6 位代码可能在不同市场各有一只证券
+    /// （`000001` 既是深市的平安银行，也是沪市的上证指数），必须与代码一起才能
+    /// 唯一确定一只证券。
+    pub market: u16,
     /// 股票代码（6位）
     pub code: String,
     /// 当前价（元）。**为 0 表示今天还没有成交**（开盘前、集合竞价未定价、全天
@@ -571,7 +576,7 @@ mod tests {
 
         assert_eq!(quotes.data.len(), 1);
         let q = &quotes.data[0];
-        assert_eq!(q.code, "000001");
+        assert_eq!((q.market, q.code.as_str()), (0, "000001"));
         // 与同时段 pytdx get_security_quotes 输出逐字段一致
         assert_eq!(q.price, 11.9);
         assert_eq!(q.last_close, 11.88);
@@ -756,6 +761,19 @@ mod tests {
         body.extend_from_slice(&(records.len() as u16).to_le_bytes());
         records.iter().for_each(|r| body.extend_from_slice(r));
         body
+    }
+
+    /// 同一个代码在不同市场是不同的证券，结果里带市场才能区分。
+    #[test]
+    fn quote_carries_market() {
+        let body = quote_body(&[
+            quote_record(0, "000001", 1225, -5),    // 平安银行
+            quote_record(1, "000001", 358883, -30), // 上证指数
+        ]);
+        let mut quotes = SecurityQuotes::new(vec![(0, "000001"), (1, "000001")]);
+        quotes.try_parse(body).unwrap();
+        let got: Vec<_> = quotes.data.iter().map(|q| (q.market, q.price)).collect();
+        assert_eq!(got, [(0, 12.25), (1, 3588.83)]);
     }
 
     /// 报价精度随品种不同：同样的原始整数，基金是三位小数，债券更细。
