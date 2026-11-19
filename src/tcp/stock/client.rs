@@ -509,7 +509,17 @@ impl Client {
         Ok(xdxr.result().to_vec())
     }
 
+    /// 完整的板块数据：概念、风格、指数三类，成分不截断，带板块指数代码与最近
+    /// 调整日期（见 [`super::get_blocks`]）。做题材请用这个，而不是 [`Client::block`]。
+    pub fn blocks(&mut self) -> crate::Result<Vec<super::Block>> {
+        super::get_blocks(&mut self.tcp)
+            .map_err(|e| crate::Error::Io(std::io::Error::other(format!("Client::blocks: {e}"))))
+    }
+
     /// 板块文件（mootdx `block`），如 `"block_gn.dat"` 概念板块。
+    ///
+    /// **每个板块最多返回 400 只成分股**（文件格式的上限，热门题材会被截断），
+    /// 完整成分请用 [`Client::blocks`]。
     pub fn block(&mut self, block_file: &str) -> crate::Result<Vec<BlockRecord>> {
         super::get_block_info(&mut self.tcp, block_file).map_err(|e| {
             crate::Error::Io(std::io::Error::other(format!(

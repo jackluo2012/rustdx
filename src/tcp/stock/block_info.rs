@@ -125,6 +125,12 @@ impl Tdx for BlockInfoChunk {
 
 /// 下载并解析板块文件，返回全部板块成分记录。
 ///
+/// **每个板块最多 400 只成分股**：这是 `block_*.dat` 文件格式的上限（固定槽位），
+/// 超出的部分在文件里不存在，而且保留的是按代码排序的前 400 只——热门题材里
+/// 沪市主板和科创板的股票几乎全被截掉。2026-11-19 实测 269 个概念板块中 28 个
+/// 被截断（人工智能、芯片、低空经济、商业航天等），共丢失 5766 条成分。
+/// 需要完整成分请用 [`get_blocks`]。
+///
 /// ## 参数
 /// - `block_file`: 板块文件名。常用：
 ///   - `"block_gn.dat"` 概念板块
@@ -147,29 +153,146 @@ pub fn get_block_info(
     tcp: &mut crate::tcp::Tcp,
     block_file: &str,
 ) -> crate::Result<Vec<BlockRecord>> {
-    // 1. 文件大小
-    let mut meta = BlockInfoMeta::new(block_file);
+    // 每板块 = 名称(9, GBK) + 数量(u16) + 类型(u16) + 数量×代码(7)，前有 384 字节文件头
+    Ok(parse_block_content(&download_file(tcp, block_file)?))
+}
+
+/// 从行情服务器下载一个配置/板块文件的原始字节（两步协议：先取大小，再分块下载）。
+///
+/// 实测可取到的文件：`block_gn.dat` / `block_zs.dat` / `block_fg.dat` / `block.dat`、
+/// `infoharbor_block.dat`（完整板块成分）、`tdxhy.cfg`（个股行业代码）、
+/// `tdxzsbase.cfg`（指数统计）。服务器上没有的文件返回空。
+pub fn download_file(tcp: &mut crate::tcp::Tcp, file: &str) -> crate::Result<Vec<u8>> {
+    let mut meta = BlockInfoMeta::new(file);
     meta.recv_parsed(tcp)?;
     let size = *meta.result();
-    if size == 0 {
-        return Ok(Vec::new());
-    }
 
-    // 2. 分块下载（pytdx：单块 0x7530 字节）
+    // 分块下载（pytdx：单块 0x7530 字节）
     const ONE_CHUNK: u32 = 0x7530;
-    let chunks = size.div_ceil(ONE_CHUNK);
     let mut content = Vec::with_capacity(size as usize);
-    for seg in 0..chunks {
+    for seg in 0..size.div_ceil(ONE_CHUNK) {
         let start = seg * ONE_CHUNK;
-        let take = ONE_CHUNK.min(size - start);
-        let mut chunk = BlockInfoChunk::new(block_file, start, take);
+        let mut chunk = BlockInfoChunk::new(file, start, ONE_CHUNK.min(size - start));
         chunk.recv_parsed(tcp)?;
         content.extend_from_slice(chunk.result());
     }
+    Ok(content)
+}
 
-    // 3. 解析记录：跳过 384 字节文件头 + 数量(2)，
-    //    每板块 = 名称(9, GBK) + 数量(u16) + 类型(u16) + 数量×代码(7)
-    Ok(parse_block_content(&content))
+/// 板块类别（`infoharbor_block.dat` 里的前缀）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+pub enum BlockKind {
+    /// 概念板块（`GN_`）：题材。
+    Concept,
+    /// 风格板块（`FG_`）：如破净、微盘股、基金重仓。
+    Style,
+    /// 指数板块（`ZS_`）：如沪深300、创业板指的成分。
+    Index,
+}
+
+/// 一个板块及其完整成分，见 [`get_blocks`]。
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct Block {
+    /// 类别。
+    pub kind: BlockKind,
+    /// 板块名。**最长 4 个汉字**，更长的名字在数据源里就被截断了
+    /// （如「人形机器人」记作「人形机器」）。
+    pub name: String,
+    /// 对应的板块指数代码（沪市 `880xxx`），可用它取板块指数的行情与 K 线；
+    /// 个别板块没有。
+    pub index_code: Option<String>,
+    /// 板块创建日期（YYYYMMDD）。
+    pub created: Option<u32>,
+    /// 成分最近一次调整的日期（YYYYMMDD）。
+    pub updated: Option<u32>,
+    /// 成分股 `(market, code)`：market 0=深市、1=沪市、2=北交所。
+    pub stocks: Vec<(u16, String)>,
+}
+
+/// 下载并解析完整的板块数据（`infoharbor_block.dat`）：概念、风格、指数三类。
+///
+/// 与 [`get_block_info`] 的区别：**成分不截断**（实测最大的板块 1238 只），带市场
+/// 前缀（含北交所）、对应的板块指数代码与最近调整日期。2026-11-19 实测 547 个
+/// 板块（概念 269 / 风格 161 / 指数 117），最近的调整日期是前一个交易日。
+///
+/// 文件约 760KB，成分一天最多调整一次，建议每天取一次后自行缓存。
+///
+/// ## 示例
+/// ```ignore
+/// use rustdx_complete::tcp::stock::{BlockKind, Client};
+///
+/// let mut client = Client::new()?;
+/// let blocks = client.blocks()?;
+/// let ai = blocks.iter().find(|b| b.kind == BlockKind::Concept && b.name == "人工智能").unwrap();
+/// println!("{} 只成分股，板块指数 {:?}，最近调整 {:?}", ai.stocks.len(), ai.index_code, ai.updated);
+/// ```
+pub fn get_blocks(tcp: &mut crate::tcp::Tcp) -> crate::Result<Vec<Block>> {
+    Ok(parse_blocks(&download_file(tcp, "infoharbor_block.dat")?)?)
+}
+
+/// 解析 `infoharbor_block.dat` 的内容（GBK 文本）。
+///
+/// 格式：板块头一行 `#GN_板块名,成分数,指数代码,创建日期,调整日期,,`，其后若干行
+/// `市场#代码,` 列表，直到下一个板块头。
+///
+/// 任一板块的实际成分数与头部声明不符时返回 [`std::io::ErrorKind::InvalidData`]：
+/// 这通常意味着文件下载不完整，不能把残缺的成分当成真的用。
+pub fn parse_blocks(data: &[u8]) -> std::io::Result<Vec<Block>> {
+    let invalid = |msg: String| std::io::Error::new(std::io::ErrorKind::InvalidData, msg);
+    let text = crate::tcp::helper::gbk_to_string(data);
+    let mut blocks: Vec<(Block, Option<usize>)> = Vec::new();
+    for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        if let Some(head) = line.strip_prefix('#') {
+            let mut fields = head.split(',').map(str::trim);
+            let tag = fields.next().unwrap_or_default();
+            let (kind, name) = match tag.split_once('_') {
+                Some(("GN", name)) => (BlockKind::Concept, name),
+                Some(("FG", name)) => (BlockKind::Style, name),
+                Some(("ZS", name)) => (BlockKind::Index, name),
+                _ => return Err(invalid(format!("无法识别的板块头: {line}"))),
+            };
+            let declared = fields.next().and_then(|s| s.parse().ok());
+            let index_code = fields.next().filter(|s| !s.is_empty()).map(str::to_owned);
+            let mut date = || {
+                fields
+                    .next()
+                    .and_then(|s| s.parse().ok())
+                    .filter(|d| *d > 0)
+            };
+            let (created, updated) = (date(), date());
+            let block = Block {
+                kind,
+                name: name.to_owned(),
+                index_code,
+                created,
+                updated,
+                stocks: Vec::with_capacity(declared.unwrap_or(0)),
+            };
+            blocks.push((block, declared));
+        } else {
+            let Some((block, _)) = blocks.last_mut() else {
+                return Err(invalid(format!("成分行出现在板块头之前: {line}")));
+            };
+            for item in line.split(',').filter(|s| !s.is_empty()) {
+                let stock = item
+                    .split_once('#')
+                    .and_then(|(m, code)| Some((m.parse().ok()?, code.to_owned())))
+                    .ok_or_else(|| invalid(format!("无法识别的成分: {item}")))?;
+                block.stocks.push(stock);
+            }
+        }
+    }
+    blocks
+        .into_iter()
+        .map(|(block, declared)| match declared {
+            Some(n) if n != block.stocks.len() => Err(invalid(format!(
+                "板块「{}」声明 {n} 只成分，实际 {} 只（文件可能不完整）",
+                block.name,
+                block.stocks.len()
+            ))),
+            _ => Ok(block),
+        })
+        .collect()
 }
 
 /// 解析板块文件内容。
@@ -279,5 +402,58 @@ mod tests {
         assert_eq!(meta.send.len(), 52);
         assert_eq!(&meta.send[12..24], b"block_gn.dat");
         assert_eq!(&meta.send[24..52], &[0u8; 28]);
+    }
+
+    /// 完整板块文件的解析：类别、指数代码、日期、带市场前缀的成分、跨行成分。
+    #[test]
+    fn parse_blocks_text() {
+        let text = "#GN_人工智能,5,880948,20170314,20261103,,\r\n0#000032,0#000034,\r\n1#600000,1#688981,2#920799,\r\n\
+                    #FG_破净资产,0,,20050607,,,\r\n\
+                    #ZS_上证50,1,880529,20050607,20260512,,\r\n1#600519,\r\n";
+        let (gbk, _, _) = encoding_rs::GBK.encode(text);
+        let blocks = super::parse_blocks(&gbk).unwrap();
+        assert_eq!(blocks.len(), 3);
+        let ai = &blocks[0];
+        assert_eq!(
+            (ai.kind, ai.name.as_str()),
+            (super::BlockKind::Concept, "人工智能")
+        );
+        assert_eq!(ai.index_code.as_deref(), Some("880948"));
+        assert_eq!((ai.created, ai.updated), (Some(20170314), Some(20261103)));
+        assert_eq!(
+            ai.stocks,
+            [
+                (0, "000032"),
+                (0, "000034"),
+                (1, "600000"),
+                (1, "688981"),
+                (2, "920799")
+            ]
+            .map(|(m, c)| (m, c.to_string()))
+        );
+        // 没有指数代码、没有调整日期、没有成分的板块
+        let empty = &blocks[1];
+        assert_eq!(empty.kind, super::BlockKind::Style);
+        assert_eq!(
+            (empty.index_code.clone(), empty.updated, empty.stocks.len()),
+            (None, None, 0)
+        );
+        assert_eq!(blocks[2].kind, super::BlockKind::Index);
+    }
+
+    /// 成分数与头部声明不符（下载不完整）、无法识别的内容，都是错误。
+    #[test]
+    fn parse_blocks_rejects_incomplete_or_malformed() {
+        for text in [
+            "#GN_芯片,3,880952,20170907,20261118,,\n0#000021,0#000063,\n", // 少一只
+            "#XX_未知,1,,,,\n0#000001,\n",                                 // 未知类别
+            "0#000001,\n",                                                 // 没有板块头
+            "#GN_芯片,1,880952,,,,\nabc,\n",                               // 成分格式不对
+        ] {
+            let (gbk, _, _) = encoding_rs::GBK.encode(text);
+            let err = super::parse_blocks(&gbk).unwrap_err();
+            assert_eq!(err.kind(), std::io::ErrorKind::InvalidData, "{text}");
+        }
+        assert!(super::parse_blocks(b"").unwrap().is_empty());
     }
 }
