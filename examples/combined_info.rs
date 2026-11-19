@@ -1,4 +1,6 @@
 #!/usr/bin/env rustx
+// 仍在演示已废弃的静态概念表；实时完整的板块成分见 examples/concept_query.rs
+#![allow(deprecated)]
 use rustdx_complete::tcp::stock::{
     FinanceInfo, get_concept_stocks, get_industry_name, get_province_name,
 };

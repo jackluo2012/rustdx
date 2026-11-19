@@ -7,6 +7,11 @@
 //! 一致）。新股上市首日等特殊涨跌幅不在本模块，调用方应跳过首日
 //! （如日线 `prev_close == 0` 的首行）。
 //!
+//! **主板 ST 的幅度随日期变化**：[`MAIN_ST_10PCT_SINCE`](crate::limit::MAIN_ST_10PCT_SINCE)
+//! （2026-07-06）起由 ±5% 调整为
+//! ±10%。不带日期的函数按现行规则计算，用于盘中；回算历史（如连板高度）时
+//! 用带 `_on` 后缀的版本并传入当日日期。
+//!
 //! ## 示例
 //! ```ignore
 //! use rustdx_complete::limit::{self, LimitStatus};
@@ -32,14 +37,30 @@ pub enum Board {
     Beijing,
 }
 
+/// 沪深主板 ST（风险警示）股票涨跌幅由 ±5% 调整为 ±10% 的生效日（YYYYMMDD）。
+///
+/// 2026-11-19 实盘核对：141 只主板 ST 中 17 只的当日最高/最低价超出 ±5%，
+/// 最大涨跌幅为 +10.09% / -10.00%；历史日线上主板 ST 收于 ±5% 档的次数自
+/// 2026 年 7 月起骤降。
+pub const MAIN_ST_10PCT_SINCE: u32 = 20260706;
+
 impl Board {
-    /// 含 ST 修正的涨跌停幅度（%）。
+    /// 现行规则下、含 ST 修正的涨跌停幅度（%）。
     ///
-    /// 主板 ST ±5%；创业板/科创板 ST 仍 ±20%；北交所无 ST ±5% 规则。
-    /// 新股上市首日等特殊规则不在本模块。
+    /// 主板 ±10%（ST 自 [`MAIN_ST_10PCT_SINCE`] 起同为 ±10%）；创业板/科创板
+    /// ±20%（ST 同幅度）；北交所 ±30%。新股上市首日等特殊规则不在本模块。
+    /// 回算历史请用 [`Board::limit_pct_on`]。
     pub fn limit_pct_for(self, st: bool) -> f64 {
+        self.limit_pct_on(st, u32::MAX)
+    }
+
+    /// `date`（YYYYMMDD）当日适用的涨跌停幅度（%）。
+    ///
+    /// 与 [`Board::limit_pct_for`] 的唯一区别：主板 ST 在
+    /// [`MAIN_ST_10PCT_SINCE`] 之前是 ±5%。
+    pub fn limit_pct_on(self, st: bool, date: u32) -> f64 {
         match self {
-            Board::Main if st => 5.0,
+            Board::Main if st && date < MAIN_ST_10PCT_SINCE => 5.0,
             Board::Main => 10.0,
             Board::ChiNext | Board::Star => 20.0,
             Board::Beijing => 30.0,
@@ -97,27 +118,33 @@ fn same_fen(a: f64, b: f64) -> bool {
     (a * 100.0).round() == (b * 100.0).round()
 }
 
-/// 涨停价（正常交易日）。
+/// 现行规则下的涨停价（正常交易日）。回算历史请用 [`limit_up_price_on`]。
 ///
 /// `prev_close` 非正或非有限时返回 `None`（除权日昨收应传除权参考价，
 /// 见 [`crate::tcp::stock::ex_right_reference`]）。
 pub fn limit_up_price(prev_close: f64, board: Board, st: bool) -> Option<f64> {
-    if !prev_close.is_finite() || prev_close <= 0.0 {
-        return None;
-    }
-    Some(round_fen(
-        prev_close * (1.0 + board.limit_pct_for(st) / 100.0),
-    ))
+    limit_up_price_on(prev_close, board, st, u32::MAX)
 }
 
-/// 跌停价（正常交易日）。非法输入同 [`limit_up_price`]。
+/// 现行规则下的跌停价（正常交易日）。非法输入同 [`limit_up_price`]。
 pub fn limit_down_price(prev_close: f64, board: Board, st: bool) -> Option<f64> {
-    if !prev_close.is_finite() || prev_close <= 0.0 {
-        return None;
-    }
-    Some(round_fen(
-        prev_close * (1.0 - board.limit_pct_for(st) / 100.0),
-    ))
+    limit_down_price_on(prev_close, board, st, u32::MAX)
+}
+
+/// `date`（YYYYMMDD）当日的涨停价。非法输入同 [`limit_up_price`]。
+pub fn limit_up_price_on(prev_close: f64, board: Board, st: bool, date: u32) -> Option<f64> {
+    limit_price(prev_close, board.limit_pct_on(st, date))
+}
+
+/// `date`（YYYYMMDD）当日的跌停价。非法输入同 [`limit_up_price`]。
+pub fn limit_down_price_on(prev_close: f64, board: Board, st: bool, date: u32) -> Option<f64> {
+    limit_price(prev_close, -board.limit_pct_on(st, date))
+}
+
+/// `前收盘 × (1 + 幅度%)` 四舍五入到分；前收盘非法时返回 `None`。
+fn limit_price(prev_close: f64, pct: f64) -> Option<f64> {
+    (prev_close.is_finite() && prev_close > 0.0)
+        .then(|| round_fen(prev_close * (1.0 + pct / 100.0)))
 }
 
 /// 个股当日相对涨停价的状态。
@@ -149,6 +176,7 @@ impl LimitStatus {
 /// - 否则 → [`LimitStatus::Untouched`]。
 ///
 /// `prev_close` 非法时返回 `None`（调用方应跳过该日，如上市首日）。
+/// 按现行规则判定，用于盘中；回算历史请用 [`limit_status_on`]。
 pub fn limit_status(
     close: f64,
     high: f64,
@@ -156,7 +184,22 @@ pub fn limit_status(
     board: Board,
     st: bool,
 ) -> Option<LimitStatus> {
-    let up = limit_up_price(prev_close, board, st)?;
+    limit_status_on(close, high, prev_close, board, st, u32::MAX)
+}
+
+/// 按 `date`（YYYYMMDD）当日适用的涨跌幅判定状态，规则同 [`limit_status`]。
+///
+/// 回算连板高度时逐日调用本函数：主板 ST 在 [`MAIN_ST_10PCT_SINCE`] 前后的
+/// 涨停价不同，用现行规则回算旧日期会把当时的涨停板全部漏掉。
+pub fn limit_status_on(
+    close: f64,
+    high: f64,
+    prev_close: f64,
+    board: Board,
+    st: bool,
+    date: u32,
+) -> Option<LimitStatus> {
+    let up = limit_up_price_on(prev_close, board, st, date)?;
     if same_fen(close, up) {
         Some(LimitStatus::Sealed)
     } else if same_fen(high, up) || high > up {
@@ -211,14 +254,57 @@ mod tests {
 
     #[test]
     fn limit_prices_by_board_and_st() {
-        // 主板 ST ±5%：10.03 → 10.53（10.5315 → 10.53）
-        assert_eq!(limit_up_price(10.03, Board::Main, true).unwrap(), 10.53);
+        // 主板 ST 现行 ±10%，与普通主板股票相同
+        assert_eq!(limit_up_price(10.03, Board::Main, true).unwrap(), 11.03);
+        assert_eq!(limit_down_price(10.03, Board::Main, true).unwrap(), 9.03);
         // 创业板/科创板 ±20%（ST 同幅度）
         assert_eq!(limit_up_price(10.00, Board::ChiNext, false).unwrap(), 12.0);
         assert_eq!(limit_up_price(10.00, Board::ChiNext, true).unwrap(), 12.0);
         assert_eq!(limit_up_price(50.13, Board::Star, false).unwrap(), 60.16);
         // 北交所 ±30%
         assert_eq!(limit_up_price(10.00, Board::Beijing, false).unwrap(), 13.0);
+    }
+
+    /// 主板 ST 的幅度在 2026-07-06 由 ±5% 调整为 ±10%；其它板块不随日期变化。
+    #[test]
+    fn main_st_limit_depends_on_date() {
+        let before = MAIN_ST_10PCT_SINCE - 3; // 2026-07-03，调整前最后一个交易日
+        // 调整前：10.03 → 10.53（10.5315）/ 9.53（9.5285）
+        assert_eq!(
+            limit_up_price_on(10.03, Board::Main, true, before),
+            Some(10.53)
+        );
+        assert_eq!(
+            limit_down_price_on(10.03, Board::Main, true, before),
+            Some(9.53)
+        );
+        // 生效日起
+        assert_eq!(
+            limit_up_price_on(10.03, Board::Main, true, MAIN_ST_10PCT_SINCE),
+            Some(11.03)
+        );
+        assert_eq!(
+            limit_up_price_on(10.03, Board::Main, true, 20261119),
+            Some(11.03)
+        );
+        // 非 ST 与其它板块不受日期影响
+        for date in [before, MAIN_ST_10PCT_SINCE] {
+            assert_eq!(Board::Main.limit_pct_on(false, date), 10.0);
+            assert_eq!(Board::ChiNext.limit_pct_on(true, date), 20.0);
+            assert_eq!(Board::Star.limit_pct_on(true, date), 20.0);
+            assert_eq!(Board::Beijing.limit_pct_on(true, date), 30.0);
+        }
+        // 2026-11-19 实盘样本：*ST雅博 昨收 1.09，现价 1.14（+5% 档）、最高 1.18。
+        // 现行规则涨停价是 1.20，这不是封板；按旧的 5% 才会被误判成封板。
+        assert_eq!(limit_up_price(1.09, Board::Main, true), Some(1.2));
+        assert_eq!(
+            limit_status(1.14, 1.18, 1.09, Board::Main, true),
+            Some(LimitStatus::Untouched)
+        );
+        assert_eq!(
+            limit_status_on(1.14, 1.14, 1.09, Board::Main, true, before),
+            Some(LimitStatus::Sealed)
+        );
     }
 
     #[test]

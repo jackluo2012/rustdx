@@ -1,3 +1,5 @@
+// 覆盖已废弃的静态概念表（仍需保证它不被悄悄破坏）
+#![allow(deprecated)]
 use rustdx_complete::tcp::stock::{
     FinanceInfo, Kline, MinuteTime, SecurityList, SecurityQuotes, Transaction, get_concept_stocks,
     get_industry_name, get_province_name,

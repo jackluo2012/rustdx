@@ -30,7 +30,8 @@ pub use history_transaction::HistoryTransaction;
 
 mod block_info;
 pub use block_info::{
-    BlockInfoChunk, BlockInfoMeta, BlockRecord, get_block_info, parse_block_content,
+    Block, BlockInfoChunk, BlockInfoMeta, BlockKind, BlockRecord, download_file, get_block_info,
+    get_blocks, parse_block_content, parse_blocks,
 };
 
 mod company_info;
@@ -180,6 +181,7 @@ mod industry_mapping;
 pub use industry_mapping::{get_industry_info, get_industry_name, get_province_name};
 
 mod concept_mapping;
+#[allow(deprecated)]
 pub use concept_mapping::{ConceptStock, get_concept_info, get_concept_names, get_concept_stocks};
 
 // 数据验证模块

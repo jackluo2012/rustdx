@@ -25,7 +25,7 @@
 
 ```toml
 [dependencies]
-rustdx-complete = "1.14"
+rustdx-complete = "1.15"
 ```
 
 或 `cargo add rustdx-complete`。
@@ -63,10 +63,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let qfq = client.k_adjusted(1, "600519", Adj::Qfq, Some(20240101), Some(20261231))?;
     let hfq = client.k_adjusted(1, "600519", Adj::Hfq, Some(20240101), Some(20261231))?;
 
-    // 概念板块（服务器真实数据，269 个板块）
-    let blocks = client.block("block_gn.dat")?;
-    let lidian: Vec<_> = blocks.iter().filter(|r| r.blockname == "锂电池").collect();
-    println!("锂电池板块 {} 只成分股", lidian.len());
+    // 板块/题材（服务器真实数据：概念、风格、指数共 547 个板块，成分不截断）
+    let blocks = client.blocks()?;
+    let lidian = blocks.iter().find(|b| b.name == "锂电池").unwrap();
+    println!("锂电池板块 {} 只成分股，板块指数 {:?}", lidian.stocks.len(), lidian.index_code);
 
     Ok(())
 }
@@ -90,7 +90,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `finance` | `Client::finance` / `FinanceInfo` | 35 个财务字段 |
 | `xdxr` | `Client::xdxr` / `Xdxr` | 除权除息/送配股等股本变迁 |
 | `F10C` / `F10` | `Client::f10_categories` / `Client::f10` | 公司资料栏目与内容 |
-| `block` | `Client::block` / `get_block_info` | 板块文件（block_gn/zs/fg.dat） |
+| `block` | `Client::block` / `get_block_info` | 板块文件（block_gn/zs/fg.dat），每板块最多 400 只 |
+| —（rustdx 新增） | `Client::blocks` / `get_blocks` | 完整板块成分（不截断）+ 板块指数代码 + 最近调整日期 |
 | `stocks` / `stock_count` | `Client::stocks` / `stock_count` | 全量证券列表（自动分页） |
 | `bestip` / `check_server` | `tcp::ip::check_alive` / `check_alive_protocol` | 服务器连通性探测（TCP/协议级） |
 | heartbeat / auto_retry | `Tcp::heartbeat` / `Tcp::retry` | 心跳保活、失败自动重连重试 |
@@ -158,7 +159,7 @@ client.tcp.set_deadline(Some(std::time::Instant::now() + Duration::from_secs(30)
 
 - `indicators`：SMA/EMA/MACD/RSI/布林带/KDJ，与K线数据无缝衔接
 - `calendar`：A股交易日历（法定节假日，数据源 trade_date_a）
-- `limit`：涨跌停域规则——板块判定（主板/创业板/科创/北交）、涨跌停价（四舍五入到分，ST 5%/20%/30% 规则齐）、封板/炸板判型、连板高度
+- `limit`：涨跌停域规则——板块判定（主板/创业板/科创/北交）、涨跌停价（四舍五入到分；主板 10%、创业板/科创板 20%、北交所 30%，主板 ST 自 2026-07-06 起由 5% 调整为 10%，回算历史用带日期的版本）、封板/炸板判型、连板高度
 - `cache`：内存/文件缓存（TTL 过期）
 - `pool`：TCP 连接池
 - `builder`：KlineBuilder 链式 API

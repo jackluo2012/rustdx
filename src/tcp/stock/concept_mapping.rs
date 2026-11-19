@@ -1,4 +1,8 @@
-//! 东方财富概念板块成分股映射表
+//! 东方财富概念板块成分股映射表（**已废弃的示例数据**）
+//!
+//! 写死在代码里的演示数据：只有十来个概念、每个概念前 20 只，2025 年 12 月之后
+//! 没有更新过，不能用于实盘。实时、完整的板块成分请用
+//! [`Client::blocks`](crate::tcp::stock::Client::blocks)。
 //!
 //! 数据来源: AKShare (东方财富概念板块)
 //! 更新时间: 手动更新
@@ -25,6 +29,9 @@ pub struct ConceptStock {
 /// 同花顺/东方财富概念板块成分股映射（示例数据）
 ///
 /// 返回指定概念的成分股列表（前20只）
+#[deprecated(
+    note = "写死的示例数据（每概念前 20 只，2025-12 后未更新）；请用 Client::blocks 取实时完整的板块成分"
+)]
 pub fn get_concept_stocks(concept: &str) -> Option<Vec<ConceptStock>> {
     match concept {
         "新能源汽车" => Some(vec![
@@ -848,6 +855,9 @@ pub fn get_concept_stocks(concept: &str) -> Option<Vec<ConceptStock>> {
 }
 
 /// 获取所有支持的概念板块名称
+#[deprecated(
+    note = "写死的示例数据（每概念前 20 只，2025-12 后未更新）；请用 Client::blocks 取实时完整的板块成分"
+)]
 pub fn get_concept_names() -> Vec<&'static str> {
     vec![
         "新能源汽车",
@@ -864,6 +874,10 @@ pub fn get_concept_names() -> Vec<&'static str> {
 }
 
 /// 获取概念板块信息
+#[deprecated(
+    note = "写死的示例数据（每概念前 20 只，2025-12 后未更新）；请用 Client::blocks 取实时完整的板块成分"
+)]
+#[allow(deprecated)]
 pub fn get_concept_info(concept: &str) -> Option<(&'static str, usize)> {
     match concept {
         "新能源汽车" => Some(("新能源汽车", 216)),
@@ -881,6 +895,7 @@ pub fn get_concept_info(concept: &str) -> Option<(&'static str, usize)> {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
 
