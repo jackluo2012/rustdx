@@ -108,11 +108,6 @@ pub fn is_st_name(name: &str) -> bool {
     name.contains("ST")
 }
 
-/// 四舍五入到分。
-fn round_fen(price: f64) -> f64 {
-    (price * 100.0).round() / 100.0
-}
-
 /// 按分比较价格相等（涨跌停判定必须免疫浮点误差）。
 fn same_fen(a: f64, b: f64) -> bool {
     (a * 100.0).round() == (b * 100.0).round()
@@ -141,10 +136,21 @@ pub fn limit_down_price_on(prev_close: f64, board: Board, st: bool, date: u32) -
     limit_price(prev_close, -board.limit_pct_on(st, date))
 }
 
-/// `前收盘 × (1 + 幅度%)` 四舍五入到分；前收盘非法时返回 `None`。
+/// `前收盘 × (1 + 幅度%)` 按交易所口径（十进制四舍五入到分）计算；前收盘非法时
+/// 返回 `None`。
+///
+/// **全程用整数分运算**：`(昨收分 × (100 ± 幅度) + 50) / 100`。直接在浮点上乘再
+/// 舍入会出错——`1.15 × 1.1` 在 f64 里是 `1.26499…`，舍入得 1.26，而交易所的
+/// 涨停价是 1.27。穷举 0.01~999.99 元 × 10%/20%/30% 两个方向共约 60 万组，
+/// 浮点做法有 5133 组差 1 分，会把真实的封板误判成炸板。
 fn limit_price(prev_close: f64, pct: f64) -> Option<f64> {
-    (prev_close.is_finite() && prev_close > 0.0)
-        .then(|| round_fen(prev_close * (1.0 + pct / 100.0)))
+    if !prev_close.is_finite() || prev_close <= 0.0 {
+        return None;
+    }
+    // 昨收本身精确到分，取整只是消除 f64 的表示误差
+    let prev_fen = (prev_close * 100.0).round() as i64;
+    let pct = pct.round() as i64; // 幅度都是整数百分比（5/10/20/30）
+    (prev_fen > 0).then(|| ((prev_fen * (100 + pct) + 50) / 100) as f64 / 100.0)
 }
 
 /// 个股当日相对涨停价的状态。
@@ -305,6 +311,43 @@ mod tests {
             limit_status_on(1.14, 1.14, 1.09, Board::Main, true, before),
             Some(LimitStatus::Sealed)
         );
+    }
+
+    /// 交易所口径是十进制四舍五入到分；浮点乘法后再舍入会差 1 分。
+    #[test]
+    fn limit_prices_use_exact_decimal_rounding() {
+        // f64 路径算错的实例：1.15×1.1=1.265 → 1.27（f64 得 1.26）
+        assert_eq!(limit_up_price(1.15, Board::Main, false), Some(1.27));
+        assert_eq!(limit_down_price(1.15, Board::Main, false), Some(1.04));
+        assert_eq!(limit_down_price(2.65, Board::Main, false), Some(2.39));
+        assert_eq!(limit_down_price(9.35, Board::Main, false), Some(8.42));
+        // 调整前的主板 ST 5%：4.30 → 4.52（f64 得 4.51）
+        assert_eq!(
+            limit_up_price_on(4.30, Board::Main, true, MAIN_ST_10PCT_SINCE - 1),
+            Some(4.52)
+        );
+        // 穷举 0.01~999.99 元：每个结果都等于整数分的十进制四舍五入
+        for (board, pct) in [
+            (Board::Main, 10i64),
+            (Board::ChiNext, 20),
+            (Board::Beijing, 30),
+        ] {
+            for fen in 1..=99_999i64 {
+                let prev = fen as f64 / 100.0;
+                let up = limit_up_price(prev, board, false).unwrap();
+                let down = limit_down_price(prev, board, false).unwrap();
+                assert_eq!(
+                    (up * 100.0).round() as i64,
+                    (fen * (100 + pct) + 50) / 100,
+                    "{prev} 涨停"
+                );
+                assert_eq!(
+                    (down * 100.0).round() as i64,
+                    (fen * (100 - pct) + 50) / 100,
+                    "{prev} 跌停"
+                );
+            }
+        }
     }
 
     #[test]
