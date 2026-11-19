@@ -387,6 +387,9 @@ impl Client {
     /// 当天）协议稳定，作为兜底数据源。
     ///
     /// 两个接口返回相同的数据结构（每分钟一个价格/成交量点）。
+    ///
+    /// 09:25 之前会返回 1 个占位点（价格为昨收、成交量 0）；09:25~09:30 这个点是
+    /// 开盘价与竞价成交量；第一分钟（09:31）的成交量包含竞价成交量。
     pub fn minute(&mut self, market: u16, code: &str) -> std::io::Result<Vec<MinuteTimeData>> {
         let ctx = format_args!("Client::minute(market={market}, code={code})");
         let mut mt = super::MinuteTime::new(market, code);

@@ -29,13 +29,19 @@ fn tcp_k_batch_matches_k() -> std::io::Result<()> {
         let d = row.result.as_ref().expect("单只拉取应成功");
         let single = c.k(m, code, Some(20250101), None)?;
         assert_eq!(d.len(), single.len(), "{code} 根数不一致");
-        for (a, b) in d.iter().zip(&single) {
+        let last = d.len().saturating_sub(1);
+        for (i, (a, b)) in d.iter().zip(&single).enumerate() {
             assert_eq!(
                 DateTime::to_u32(a.dt),
                 DateTime::to_u32(b.dt),
                 "{code} 日期不一致"
             );
-            assert!((a.close - b.close).abs() < 1e-9, "{code} 收盘价不一致");
+            // 最新一根在盘中会变：两次请求之间价格可能已经跳动，只要求同量级
+            let tolerance = if i == last { b.close * 0.02 } else { 1e-9 };
+            assert!(
+                (a.close - b.close).abs() <= tolerance,
+                "{code} 收盘价不一致"
+            );
         }
         println!("{code}: {} 根 ✓", d.len());
     }
@@ -79,8 +85,9 @@ fn tcp_k_adjusted_qfq_hfq() -> std::io::Result<()> {
     // 1. 前复权最新价 = 实际最新价
     let last = raw.last().unwrap();
     let qlast = qfq.last().unwrap();
+    // 两次拉取之间盘中价格可能已经跳动，只要求同量级
     assert!(
-        (qlast.close - last.close).abs() < 1e-6,
+        (qlast.close - last.close).abs() <= last.close * 0.02,
         "前复权最新价 {:.2} != 原始 {:.2}",
         qlast.close,
         last.close

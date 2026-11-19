@@ -124,7 +124,14 @@ pub(crate) fn price_checked(arr: &[u8], pos: &mut usize) -> Option<i32> {
     i32::try_from(if first & 0x40 != 0 { -value } else { value }).ok()
 }
 
+/// 解码协议里的成交量/成交额（通达信自定义的浮点编码）。
+///
+/// 原始值为 0 时返回 0：按公式硬算会得到 `2^-127 ≈ 5.9e-39`，既不是 0 也
+/// 没有意义（开盘前、零成交的 K 线都是这种情况），会让 `vol == 0.0` 的判断失效。
 pub fn vol_amount(ivol: i32) -> f64 {
+    if ivol == 0 {
+        return 0.0;
+    }
     let logpoint = ((ivol as u32) >> 24) as i32;
     let hleax = (ivol >> 16) & 0xff;
     let lheax = (ivol >> 8) & 0xff;
@@ -181,6 +188,7 @@ fn check_datetime_price_vol_amount() {
     assert_eq!(price(&[228, 6], &mut 0), -420);
     assert_eq!(price(&[156, 3], &mut 0), 220);
     assert_eq!(price(&[194, 7], &mut 0), -450);
+    assert_eq!(vol_amount(0), 0.0);
     assert_eq!(vol_amount(1235775464), 1379837.0);
     assert_eq!(vol_amount(1326643033), 2465683712.0);
 
