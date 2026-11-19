@@ -67,7 +67,7 @@ pub fn datetime(arr: &[u8], category: u16) -> DateTime {
 
     if category < 4 || category == 7 || category == 8 {
         let day = u16_from_le_bytes(arr, 0);
-        let minutes = u16_from_le_bytes(arr, 2);
+        let minutes = noon_bar_minutes(u16_from_le_bytes(arr, 2));
         datetime.year = (day >> 11) + 2004;
         datetime.month = day % 2048 / 100;
         datetime.day = day % 2048 % 100;
@@ -81,6 +81,21 @@ pub fn datetime(arr: &[u8], category: u16) -> DateTime {
     }
 
     datetime
+}
+
+/// 修正上午最后一根分钟 K 线的时间：13:00 → 11:30。
+///
+/// 服务器在**当天**把 11:30 收盘的那根标成 13:00（1/5/15/30/60 分钟线都如此），
+/// 到历史日期才是 11:30。13:00 不是任何分钟周期的合法收盘时间
+/// （下午第一根最早是 13:01），所以这个替换不会误伤。
+fn noon_bar_minutes(minutes: u16) -> u16 {
+    const MORNING_CLOSE: u16 = 11 * 60 + 30;
+    const AFTERNOON_OPEN: u16 = 13 * 60;
+    if minutes == AFTERNOON_OPEN {
+        MORNING_CLOSE
+    } else {
+        minutes
+    }
 }
 
 /// 解析价格 (open / close / high / low)
@@ -178,6 +193,23 @@ pub fn vol_amount(ivol: i32) -> f64 {
 //     pos += 2
 //
 //     return hour, minute, pos
+
+/// 当天上午最后一根分钟线被服务器标成 13:00，应还原为 11:30；相邻时间不受影响。
+#[test]
+fn noon_bar_is_relabeled_to_morning_close() {
+    // 2026-11-19 = ((2026 - 2004) << 11) + 1119 = 46175 = 0xB45F
+    let at = |minutes: u16, category: u16| {
+        let m = minutes.to_le_bytes();
+        let dt = datetime(&[0x5F, 0xB4, m[0], m[1]], category);
+        (dt.to_u32(), dt.hour, dt.minute)
+    };
+    for category in [0, 1, 2, 3, 7, 8] {
+        assert_eq!(at(13 * 60, category), (20261119, 11, 30));
+        assert_eq!(at(11 * 60 + 30, category), (20261119, 11, 30));
+        assert_eq!(at(11 * 60 + 29, category), (20261119, 11, 29));
+        assert_eq!(at(13 * 60 + 1, category), (20261119, 13, 1));
+    }
+}
 
 #[test]
 fn check_datetime_price_vol_amount() {

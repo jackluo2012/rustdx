@@ -54,6 +54,22 @@ impl Board {
         self.limit_pct_on(st, u32::MAX)
     }
 
+    /// 新股上市后**不设涨跌幅限制**的交易日数（含上市首日）。
+    ///
+    /// 现行规则：主板（2023-04-10 全面注册制起）、创业板、科创板为前 5 个交易日；
+    /// 北交所仅上市首日。这几天没有涨跌停价，回算连板或统计涨停时应跳过
+    /// 日线的前这么多根，本模块的其它函数不知道上市日期，不会自动跳过。
+    ///
+    /// 注意：主板在 2023-04-10 之前上市的新股适用旧规则（首日 44%、次日起
+    /// ±10%），不在此列。本值来自交易所规则；2026-11-19 核对时市场上没有上市
+    /// 5 日内的新股，未能用实盘数据验证。
+    pub fn ipo_free_days(self) -> u32 {
+        match self {
+            Board::Main | Board::ChiNext | Board::Star => 5,
+            Board::Beijing => 1,
+        }
+    }
+
     /// `date`（YYYYMMDD）当日适用的涨跌停幅度（%）。
     ///
     /// 与 [`Board::limit_pct_for`] 的唯一区别：主板 ST 在
@@ -104,6 +120,11 @@ pub fn board_of(code: &str) -> Option<Board> {
 
 /// ST 股名识别：名称含 "ST"（含 *ST）即按 ST 幅度处理。
 /// 未股改 "S" 前缀股已基本消亡，不单独建模。
+///
+/// 证券列表里的名称是**当前**名称（2026-11-19 核对：11 月 6 日、11 日摘帽的
+/// 两只已是新名称，更新及时）。回算历史时拿不到当时的名称：一只现在已摘帽的
+/// 主板股票，在 [`MAIN_ST_10PCT_SINCE`] 之前戴帽期间的 ±5% 涨停会被按 ±10%
+/// 漏判，反之亦然。需要精确历史的调用方得自己保存名称变更记录。
 pub fn is_st_name(name: &str) -> bool {
     name.contains("ST")
 }
@@ -213,6 +234,39 @@ pub fn limit_status_on(
     } else {
         Some(LimitStatus::Untouched)
     }
+}
+
+/// 盘中判定相对涨停价的状态：在 [`limit_status_on`] 的基础上要求**卖一没有挂单**
+/// 才算封板。
+///
+/// 盘中「现价 = 涨停价」不等于封住：卖一可能还挂在涨停价上、正在被吃
+/// （2026-11-19 盘中实测，32 只现价等于涨停价的股票里有 1 只卖一还有 44 手）。
+/// **只在连续交易时段（09:30~14:57）使用**；收盘后请用 [`limit_status_on`]。
+/// 15:05 起是盘后定价交易，行情的买一 / 卖一变成按收盘价挂出的盘后委托
+/// （2026-11-19 实测：贵州茅台 15:05 卖一是收盘价 1460.21 × 9 手、买一为空），
+/// 封死涨停的股票这时也可能出现卖一量，会被本函数误判成炸板。
+///
+/// - `price` / `high` / `prev_close` / `ask1_vol` 对应行情快照的现价、最高、昨收、
+///   卖一量；
+/// - 现价 = 涨停价且卖一量为 0 → [`LimitStatus::Sealed`]；
+/// - 触及过涨停价但当前没封住（含现价在涨停价、卖一仍有挂单）→
+///   [`LimitStatus::Blown`]；
+/// - 否则 → [`LimitStatus::Untouched`]。
+pub fn limit_status_live(
+    price: f64,
+    high: f64,
+    prev_close: f64,
+    ask1_vol: f64,
+    board: Board,
+    st: bool,
+    date: u32,
+) -> Option<LimitStatus> {
+    let status = limit_status_on(price, high, prev_close, board, st, date)?;
+    Some(if status == LimitStatus::Sealed && ask1_vol > 0.0 {
+        LimitStatus::Blown
+    } else {
+        status
+    })
 }
 
 /// 连板高度：`statuses` 按时间升序，从最近一日往前数连续
@@ -377,6 +431,31 @@ mod tests {
         );
         // 首日 prev_close = 0 → None
         assert_eq!(limit_status(4.69, 4.69, 0.0, Board::Main, false), None);
+    }
+
+    /// 盘中现价在涨停价但卖一还有挂单，不算封板。
+    #[test]
+    fn live_status_requires_empty_ask() {
+        let live = |price, high, ask1_vol| {
+            limit_status_live(price, high, 28.37, ask1_vol, Board::Main, false, 20261119)
+        };
+        // 昨收 28.37 → 涨停 31.21（2026-11-19 九阳股份）
+        assert_eq!(live(31.21, 31.21, 0.0), Some(LimitStatus::Sealed));
+        assert_eq!(live(31.21, 31.21, 44.0), Some(LimitStatus::Blown));
+        assert_eq!(live(30.90, 31.21, 120.0), Some(LimitStatus::Blown));
+        assert_eq!(live(30.90, 31.00, 120.0), Some(LimitStatus::Untouched));
+        assert_eq!(
+            limit_status_live(1.0, 1.0, 0.0, 0.0, Board::Main, false, 20261119),
+            None
+        );
+    }
+
+    #[test]
+    fn ipo_free_days_by_board() {
+        assert_eq!(Board::Main.ipo_free_days(), 5);
+        assert_eq!(Board::ChiNext.ipo_free_days(), 5);
+        assert_eq!(Board::Star.ipo_free_days(), 5);
+        assert_eq!(Board::Beijing.ipo_free_days(), 1);
     }
 
     #[test]

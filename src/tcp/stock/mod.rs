@@ -8,7 +8,7 @@ mod xdxr;
 pub use xdxr::*;
 
 mod quotes;
-pub use quotes::{AuctionMatch, QuoteData, SecurityQuotes};
+pub use quotes::{AuctionMatch, IndexBreadth, QuoteData, SecurityQuotes};
 
 mod security_list;
 pub use security_list::{SecurityList, SecurityListData};
